@@ -1,0 +1,27 @@
+{
+  "name": "neon-sign",
+  "version": "0.1.0",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "test": "vitest run"
+  },
+  "author": "",
+  "license": "ISC",
+  "description": "Browser-based LED neon strip sign designer for 3D printing",
+  "dependencies": {
+    "clipper-lib": "^6.4.2",
+    "earcut": "^3.2.4",
+    "jszip": "^3.10.2",
+    "opentype.js": "^2.0.0"
+  },
+  "devDependencies": {
+    "@types/clipper-lib": "^6.4.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.5",
+    "vitest": "^5.0.5"
+  },
+  "private": true,
+  "type": "module"
+}

@@ -9,6 +9,8 @@ export type Paths = Ring[];
 export interface Poly { outer: Ring; holes: Ring[] }
 
 const SCALE = 1000;
+/** Max deviation of round joins from a true arc, in mm. Well below what a 0.4 mm nozzle can show. */
+const ARC_TOL = 0.08;
 const { ClipType, PolyType, PolyFillType, JoinType, EndType } = ClipperLib;
 
 export type FillRule = 'nonzero' | 'evenodd';
@@ -47,7 +49,7 @@ export const difference = (a: Paths, b: Paths) => exec(ClipType.ctDifference, a,
 export function offset(p: Paths, d: number): Paths {
   if (!p.length) return [];
   if (d === 0) return union(p);
-  const co = new ClipperLib.ClipperOffset(2, 0.02 * SCALE);
+  const co = new ClipperLib.ClipperOffset(2, ARC_TOL * SCALE);
   co.AddPaths(toC(p), JoinType.jtRound, EndType.etClosedPolygon);
   const out: ClipperLib.Paths = [];
   co.Execute(out, d * SCALE);
@@ -59,7 +61,7 @@ export interface Polyline { pts: Pt[]; closed: boolean }
 /** A band of half-width `d` centred on each polyline (closed or open). */
 export function tube(lines: Polyline[], d: number): Paths {
   if (!lines.length || d <= 0) return [];
-  const co = new ClipperLib.ClipperOffset(2, 0.02 * SCALE);
+  const co = new ClipperLib.ClipperOffset(2, ARC_TOL * SCALE);
   for (const l of lines) {
     if (l.pts.length < 2) continue;
     co.AddPath(toC([l.pts])[0], JoinType.jtRound, l.closed ? EndType.etClosedLine : EndType.etOpenRound);
@@ -128,6 +130,49 @@ export function toPolys(p: Paths): Poly[] {
   walk(tree.Childs());
   return polys;
 }
+
+/** Ramer–Douglas–Peucker simplification of a closed ring (tol in mm). */
+export function simplifyRing(r: Ring, tol: number): Ring {
+  if (r.length < 8) return r;
+  // Split the loop at its two farthest-apart-ish points so both halves are open chains.
+  let far = 0, best = -1;
+  for (let i = 1; i < r.length; i++) {
+    const d = (r[i][0] - r[0][0]) ** 2 + (r[i][1] - r[0][1]) ** 2;
+    if (d > best) { best = d; far = i; }
+  }
+  const a = simplifyChain(r.slice(0, far + 1), tol);
+  const b = simplifyChain([...r.slice(far), r[0]], tol);
+  const out = [...a.slice(0, -1), ...b.slice(0, -1)];
+  return out.length >= 3 ? out : r;
+}
+
+export function simplifyChain(pts: Pt[], tol: number): Pt[] {
+  if (pts.length < 3) return pts;
+  const keep = new Uint8Array(pts.length);
+  keep[0] = keep[pts.length - 1] = 1;
+  const stack: [number, number][] = [[0, pts.length - 1]];
+  const t2 = tol * tol;
+  while (stack.length) {
+    const [i, j] = stack.pop()!;
+    const [ax, ay] = pts[i], [bx, by] = pts[j];
+    const dx = bx - ax, dy = by - ay, len2 = dx * dx + dy * dy;
+    let maxD = -1, idx = -1;
+    for (let k = i + 1; k < j; k++) {
+      const px = pts[k][0] - ax, py = pts[k][1] - ay;
+      let d: number;
+      if (len2 === 0) d = px * px + py * py;
+      else {
+        const c = px * dy - py * dx;
+        d = (c * c) / len2;
+      }
+      if (d > maxD) { maxD = d; idx = k; }
+    }
+    if (maxD > t2) { keep[idx] = 1; stack.push([i, idx], [idx, j]); }
+  }
+  return pts.filter((_, k) => keep[k]);
+}
+
+export const simplify = (p: Paths, tol: number): Paths => p.map((r) => simplifyRing(r, tol)).filter((r) => r.length >= 3);
 
 export const polyPaths = (p: Poly): Paths => [p.outer, ...p.holes];
 

@@ -1,7 +1,7 @@
 // The whole pipeline: source outlines -> neon path -> printed body -> pieces.
 import {
   type BBox, type Paths, type Polyline, type Pt, type Ring, bbox, clipLines, difference, polylineLength,
-  toPolys, totalArea, tube, union,
+  simplify, toPolys, totalArea, tube, union,
 } from './clip';
 import type { Source } from './source';
 import { type Piece, type SplitResult, splitBody } from './split';
@@ -79,7 +79,13 @@ export interface Design {
   stats: Stats;
 }
 
-export function buildDesign(src: Source, params: Params, nudges: Record<number, Nudge> = {}): Design | null {
+const NO_SPLIT: SplitResult = { xCuts: [], yCuts: [], tabs: [], joints: [], pieces: [], warnings: [] };
+
+/**
+ * Builds the full design. With `split: false` the (slower) cutting into pieces is skipped, which is what the
+ * live preview uses while a letter is being dragged.
+ */
+export function buildDesign(src: Source, params: Params, nudges: Record<number, Nudge> = {}, opts: { split?: boolean } = {}): Design | null {
   if (!src.items.length) return null;
   const raw = bbox(src.items.flatMap((i) => i.rings));
   const w = raw.maxX - raw.minX;
@@ -88,7 +94,8 @@ export function buildDesign(src: Source, params: Params, nudges: Record<number, 
   const items: DesignItem[] = src.items.map((it, idx) => {
     const n = nudges[idx] ?? { dx: 0, dy: 0 };
     const rings: Ring[] = it.rings.map((r) => r.map(([x, y]) => [(x + n.dx - raw.minX) * scale, (raw.maxY - (y + n.dy)) * scale] as Pt));
-    return { label: it.label, fill: union(rings, [], it.fill) };
+    // Flattened curves are denser than needed; 0.05 mm deviation is invisible in print and keeps clipping fast.
+    return { label: it.label, fill: simplify(union(rings, [], it.fill), 0.05) };
   });
   const fill = union(items.flatMap((i) => i.fill));
   const neon = neonPaths(items, fill, params.overlap);
@@ -96,13 +103,13 @@ export function buildDesign(src: Source, params: Params, nudges: Record<number, 
   const half = (params.stripWidth + params.channelClearance) / 2;
   const channel = tube(neon, half);
   const band = tube(neon, half + params.wallThickness);
-  const walls = difference(band, channel);
+  const walls = simplify(difference(band, channel), 0.03);
   const footprint = union(fill, band);
   const bridges = params.bridges ? bridgeIslands(footprint, params.bridgeWidth, params.wallThickness + 1) : [];
   const base = bridges.length ? union(footprint, bridges) : footprint;
   const tight = tightSpots(neon, params.minBendRadius);
 
-  const split = splitBody(base, walls, {
+  const split = opts.split === false ? NO_SPLIT : splitBody(base, walls, {
     maxPiece: params.maxPiece,
     connectors: params.connectors,
     connectorClearance: params.connectorClearance,

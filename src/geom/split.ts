@@ -1,6 +1,6 @@
 // Cuts the printed body into bed-sized pieces and adds dovetail connectors along the joints.
 import {
-  type BBox, type Paths, type Poly, type Ring, area, bbox, difference, intersect, lineIntervals,
+  type BBox, type Paths, type Poly, type Ring, area, bbox, difference, intersect, lineIntervals, pointInPaths,
   offset, polyPaths, rect, toPolys, totalArea, union,
 } from './clip';
 
@@ -51,8 +51,16 @@ export function chooseCuts(base: Paths, axis: 0 | 1, lo: number, hi: number, max
     const to = prev + maxCell;
     let best = Math.min(Math.max(ideal, from), to);
     let bestScore = Infinity;
+    // Only edges that reach into the search window can cross a candidate line.
+    const local: Paths = [];
+    for (const r of base) {
+      for (let i = 0, j = r.length - 1; i < r.length; j = i++) {
+        const a = r[j][axis], b2 = r[i][axis];
+        if (Math.max(a, b2) >= from && Math.min(a, b2) <= to) local.push([r[j], r[i]]);
+      }
+    }
     for (let c = from; c <= to + 1e-9; c += 0.5) {
-      const iv = lineIntervals(base, axis, c);
+      const iv = segmentIntervals(local, axis, c);
       const crossing = iv.reduce((s, [a, b]) => s + (b - a), 0);
       const score = crossing + 4 * iv.length + 0.1 * Math.abs(c - ideal);
       if (score < bestScore) { bestScore = score; best = c; }
@@ -61,6 +69,20 @@ export function chooseCuts(base: Paths, axis: 0 | 1, lo: number, hi: number, max
     prev = best;
   }
   return cuts;
+}
+
+/** Like lineIntervals, but over loose 2-point edges. */
+function segmentIntervals(edges: Paths, axis: 0 | 1, c: number): [number, number][] {
+  const o = 1 - axis;
+  const hits: number[] = [];
+  for (const [p, q] of edges) {
+    const a = p[axis], b = q[axis];
+    if ((a <= c && b > c) || (b <= c && a > c)) hits.push(p[o] + ((c - a) / (b - a)) * (q[o] - p[o]));
+  }
+  hits.sort((m, n) => m - n);
+  const out: [number, number][] = [];
+  for (let i = 0; i + 1 < hits.length; i += 2) out.push([hits[i], hits[i + 1]]);
+  return out;
 }
 
 /** Dovetail tab on the cut `axis = at`, centred at `m` along the cut, protruding in the + direction. */
@@ -94,6 +116,11 @@ export function splitBody(base: Paths, walls: Paths, p: SplitParams): SplitResul
 
   const doCut = (axis: 0 | 1, idx: number, at: number) => {
     const across = axis === 0 ? ys : xs;
+    // Clip the body to a strip around the cut once; every connector test on this cut works on the strip.
+    const reach = p.tabDepth + 4;
+    const strip = axis === 0 ? rect(at - reach, -FAR, at + reach, FAR) : rect(-FAR, at - reach, FAR, at + reach);
+    const stripBase = p.connectors ? intersect(base, [strip]) : [];
+    const stripWalls = p.connectors ? intersect(walls, [strip]) : [];
     for (let s = 0; s < across.length - 1; s++) {
       // Keep connectors away from the corners where two cuts cross.
       const lo = across[s] + (s > 0 ? 8 : 0), hi = across[s + 1] - (s < across.length - 2 ? 8 : 0);
@@ -106,7 +133,7 @@ export function splitBody(base: Paths, walls: Paths, p: SplitParams): SplitResul
         const ia = Math.max(a, lo), ib = Math.min(bb, hi);
         const spans: [number, number][] = ib - ia > 70 ? [[ia, (ia + ib) / 2], [(ia + ib) / 2, ib]] : [[ia, ib]];
         for (const [sa, sb] of spans) {
-          const t = placeTab(base, walls, axis, at, sa, sb, p);
+          const t = placeTab(stripBase, stripWalls, axis, at, sa, sb, p);
           if (!t) continue;
           joint.tabs++;
           tabs.push(t);
@@ -173,15 +200,27 @@ function placeTab(base: Paths, walls: Paths, axis: 0 | 1, at: number, a: number,
     if (mid - s >= lo) cands.push(mid - s);
     if (cands.length > 40) break;
   }
-  let best: Ring | null = null;
-  let bestOverlap = Infinity;
+  // Cheap screen first: sample a grid over the tab's grown bounding box. Every sample must be in the body
+  // (the socket side needs material all round the tab); samples on walls count against the spot.
+  const g = p.connectorClearance + 1.2;
+  const screened: { m: number; hits: number }[] = [];
   for (const m of cands) {
-    const t = dovetail(axis, at, m, p);
-    // The socket side needs material all round the tab, so test a grown copy.
-    if (totalArea(difference(offset([t], p.connectorClearance + 1.2), localBase)) > 0.05) continue;
-    const ov = localWalls.length ? totalArea(intersect(offset([t], p.connectorClearance + 0.6), localWalls)) : 0;
-    if (ov < 0.01) return t;
-    if (ov < bestOverlap) { bestOverlap = ov; best = t; }
+    let ok = true, hits = 0;
+    for (let u = at - 0.5 - g; u <= at + p.tabDepth + g + 1e-9 && ok; u += 1) {
+      for (let v = m - p.tabHead / 2 - g; v <= m + p.tabHead / 2 + g + 1e-9; v += 1) {
+        const [x, y] = axis === 0 ? [u, v] : [v, u];
+        if (!pointInPaths(localBase, x, y)) { ok = false; break; }
+        if (localWalls.length && pointInPaths(localWalls, x, y)) hits++;
+      }
+    }
+    if (ok) screened.push({ m, hits });
+    if (ok && hits === 0) break;
   }
-  return best;
+  screened.sort((x, y) => x.hits - y.hits);
+  // Confirm the best few exactly.
+  for (const { m } of screened.slice(0, 3)) {
+    const t = dovetail(axis, at, m, p);
+    if (totalArea(difference(offset([t], g), localBase)) <= 0.05) return t;
+  }
+  return null;
 }

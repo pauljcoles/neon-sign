@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Glowline — LED neon sign maker</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><path d='M6 24V8l10 12V8m10 16V8' fill='none' stroke='%23ff3d9a' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/></svg>" />
+</head>
+<body>
+  <header class="top">
+    <div class="brand"><span class="logo">Glowline</span><span class="tag">LED neon sign maker for 3D printing</span></div>
+    <div class="stats" id="stats"></div>
+  </header>
+  <main class="app">
+    <aside class="panel">
+      <details open>
+        <summary>Content</summary>
+        <div class="seg" role="tablist">
+          <button type="button" data-source="text" class="on">Text</button>
+          <button type="button" data-source="svg">SVG</button>
+        </div>
+        <div id="text-controls">
+          <label class="field">Text <textarea id="text" rows="2" spellcheck="false">Glow</textarea></label>
+          <label class="field">Font
+            <select id="font"></select>
+          </label>
+          <label class="file">Upload font (.ttf / .otf / .woff)<input type="file" id="font-file" accept=".ttf,.otf,.woff" /></label>
+          <label class="field range">Letter spacing <output id="letterSpacing-out"></output>
+            <input type="range" id="letterSpacing" min="-0.3" max="0.3" step="0.005" value="0" />
+          </label>
+          <p class="hint">Negative spacing makes letters overlap; overlapping letters share one neon line.</p>
+          <label class="field">Where letters overlap
+            <select id="overlap">
+              <option value="merge">Merge into one outline</option>
+              <option value="later-on-top">Right-hand letter on top</option>
+              <option value="earlier-on-top">Left-hand letter on top</option>
+            </select>
+          </label>
+          <label class="field range">Line spacing <output id="lineHeight-out"></output>
+            <input type="range" id="lineHeight" min="0.6" max="2" step="0.05" value="1.1" />
+          </label>
+          <label class="check"><input type="checkbox" id="kerning" checked /> Use font kerning</label>
+          <button type="button" id="reset-nudges" class="link">Reset moved letters and words</button>
+        </div>
+        <div id="svg-controls" hidden>
+          <label class="file">Upload SVG (filled closed shapes)<input type="file" id="svg-file" accept=".svg,image/svg+xml" /></label>
+          <p class="hint" id="svg-name">No SVG loaded.</p>
+        </div>
+      </details>
+
+      <details open>
+        <summary>Size</summary>
+        <label class="field">Lettering width (mm) <input type="number" id="width" min="50" max="5000" step="10" /></label>
+        <label class="field">Max piece size (mm) <input type="number" id="maxPiece" min="60" max="400" step="1" /></label>
+        <label class="field">Printer bed (mm) <input type="number" id="bedSize" min="100" max="500" step="1" /></label>
+        <p class="hint">Defaults suit a Bambu Lab P2S (256 mm bed) with a 16 mm margin.</p>
+      </details>
+
+      <details>
+        <summary>Neon strip</summary>
+        <label class="field">Strip width (mm) <input type="number" id="stripWidth" min="2" max="30" step="0.5" /></label>
+        <label class="field">Channel clearance (mm) <input type="number" id="channelClearance" min="0" max="2" step="0.1" /></label>
+        <label class="field">Min bend radius (mm) <input type="number" id="minBendRadius" min="0" max="100" step="1" /></label>
+        <label class="field">Glow colour <input type="color" id="glowColor" value="#ff3d9a" /></label>
+      </details>
+
+      <details>
+        <summary>Printed body</summary>
+        <label class="field">Wall thickness (mm) <input type="number" id="wallThickness" min="0.8" max="6" step="0.1" /></label>
+        <label class="field">Wall height (mm) <input type="number" id="wallHeight" min="2" max="40" step="0.5" /></label>
+        <label class="field">Base thickness (mm) <input type="number" id="baseThickness" min="0.8" max="10" step="0.2" /></label>
+        <label class="check"><input type="checkbox" id="bridges" /> Join loose letters with bridges</label>
+        <label class="field">Bridge width (mm) <input type="number" id="bridgeWidth" min="3" max="30" step="1" /></label>
+        <label class="check"><input type="checkbox" id="connectors" /> Dovetail connectors at joints</label>
+        <label class="field">Connector clearance (mm) <input type="number" id="connectorClearance" min="0" max="1" step="0.05" /></label>
+      </details>
+
+      <details open>
+        <summary>Export</summary>
+        <button type="button" id="download" class="primary">Download ZIP (STL + template + guide)</button>
+        <button type="button" id="download-svg">Template SVG only</button>
+        <p class="hint" id="export-note"></p>
+      </details>
+
+      <section class="warnings" id="warnings" aria-live="polite"></section>
+    </aside>
+
+    <section class="stage">
+      <div class="toolbar">
+        <div class="seg">
+          <button type="button" data-mode="layout" class="on">Layout</button>
+          <button type="button" data-mode="glow">Glow</button>
+        </div>
+        <div class="seg" title="What moves when you drag in the preview">
+          <button type="button" data-drag="letter">Letter</button>
+          <button type="button" data-drag="word" class="on">Word</button>
+          <button type="button" data-drag="line">Line</button>
+        </div>
+        <div class="layers" id="layers">
+          <label><input type="checkbox" data-layer="pieces" checked /> Pieces</label>
+          <label><input type="checkbox" data-layer="walls" checked /> Walls</label>
+          <label><input type="checkbox" data-layer="bridges" checked /> Bridges</label>
+          <label><input type="checkbox" data-layer="neon" checked /> Neon</label>
+          <label><input type="checkbox" data-layer="cuts" checked /> Cuts</label>
+          <label><input type="checkbox" data-layer="tight" checked /> Tight bends</label>
+        </div>
+        <button type="button" id="fit">Fit</button>
+      </div>
+      <div class="canvas-wrap"><canvas id="canvas"></canvas></div>
+      <p class="canvas-hint">Drag letters, words or lines to move them · drag empty space to pan · scroll to zoom</p>
+      <div class="busy" id="busy" hidden>Working…</div>
+    </section>
+  </main>
+  <script type="module" src="/src/ui/main.ts"></script>
+</body>
+</html>

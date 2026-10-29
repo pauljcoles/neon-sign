@@ -52,10 +52,11 @@ export function prism(poly: Poly, z0: number, z1: number, tris: Tris = []): Tris
 /**
  * A piece is two closed shells: the base plate and the walls (which start at z = 0 and overlap the plate).
  * Slicers merge overlapping shells, and keeping each shell a simple prism guarantees they are watertight.
- * The piece is centred on the origin so it lands in the middle of the plate.
+ * The piece is centred on the middle of the bed (bed origin at a corner, as Bambu Studio uses).
  */
 export function pieceMesh(piece: Piece, params: Params): Tris {
-  const cx = (piece.bbox.minX + piece.bbox.maxX) / 2, cy = (piece.bbox.minY + piece.bbox.maxY) / 2;
+  const half = params.bedSize / 2;
+  const cx = (piece.bbox.minX + piece.bbox.maxX) / 2 - half, cy = (piece.bbox.minY + piece.bbox.maxY) / 2 - half;
   const move = (p: Poly): Poly => ({
     outer: p.outer.map(([x, y]) => [x - cx, y - cy]),
     holes: p.holes.map((h) => h.map(([x, y]) => [x - cx, y - cy])),

@@ -54,21 +54,21 @@ describe('offset', () => {
   it('makes a channel band of the requested width around a closed path', () => {
     const band = tube([{ pts: rect(0, 0, 100, 50), closed: true }], 3);
     // Band of width 6 along a 300 mm perimeter: inner 94×44 hole, outer 106×56 with rounded corners.
-    expect(totalArea(band)).toBeCloseTo(106 * 56 - (4 - Math.PI) * 9 - 94 * 44, 0);
+    expect(totalArea(band) / (106 * 56 - (4 - Math.PI) * 9 - 94 * 44)).toBeCloseTo(1, 2);
   });
 });
 
 describe('neon length', () => {
   it('equals the outline perimeter in merge mode', () => {
-    const src = { items: [{ label: 'box', rings: [rect(0, 0, 100, -40)], fill: 'nonzero' as const }] };
+    const src = { items: [{ label: 'box', rings: [rect(0, 0, 100, -40)], fill: 'nonzero' as const, word: 0, line: 0 }] };
     const d = buildDesign(src, { ...defaultParams, width: 100 })!;
     expect(d.neon).toHaveLength(1);
     expect(d.stats.neonMetres).toBeCloseTo(0.28, 4);
   });
 
   it('keeps the top letter outline through an overlap when stacking', () => {
-    const a = { label: 'a', rings: [rect(0, 0, 60, -40)], fill: 'nonzero' as const };
-    const b = { label: 'b', rings: [rect(40, 0, 100, -40)], fill: 'nonzero' as const };
+    const a = { label: 'a', rings: [rect(0, 0, 60, -40)], fill: 'nonzero' as const, word: 0, line: 0 };
+    const b = { label: 'b', rings: [rect(40, 0, 100, -40)], fill: 'nonzero' as const, word: 0, line: 0 };
     const merged = buildDesign({ items: [a, b] }, { ...defaultParams, width: 100 })!;
     const stacked = buildDesign({ items: [a, b] }, { ...defaultParams, width: 100, overlap: 'later-on-top' })!;
     expect(merged.stats.neonMetres).toBeCloseTo(0.28, 3);
@@ -130,6 +130,18 @@ describe('svg paths', () => {
   it('handles relative commands', () => {
     const rings = flattenCommands(parsePathData('m10 10 h20 v10 h-20 z'), 1);
     expect(Math.abs(totalArea(rings))).toBeCloseTo(200, 5);
+  });
+});
+
+describe('text layout', () => {
+  it('groups glyphs into words and lines', () => {
+    const src = textSource(font('Righteous-Regular.ttf'), 'ab cd\nef', { letterSpacing: 0, lineHeight: 1.2, kerning: true });
+    expect(src.items.map((i) => i.label).join('')).toBe('abcdef');
+    const words = src.items.map((i) => i.word);
+    expect(words[0]).toBe(words[1]);
+    expect(words[2]).toBe(words[3]);
+    expect(new Set(words).size).toBe(3);
+    expect(src.items.map((i) => i.line)).toEqual([0, 0, 0, 0, 1, 1]);
   });
 });
 

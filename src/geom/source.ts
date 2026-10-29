@@ -7,6 +7,9 @@ export interface SourceItem {
   label: string;
   rings: Ring[];
   fill: FillRule;
+  /** Word and line the item belongs to, so whole words or lines can be dragged together. */
+  word: number;
+  line: number;
 }
 
 export interface Source { items: SourceItem[] }
@@ -25,16 +28,19 @@ export interface TextOptions {
 export function textSource(font: Font, text: string, opts: TextOptions): Source {
   const items: SourceItem[] = [];
   const lines = text.split(/\r?\n/);
+  let word = 0;
   lines.forEach((line, li) => {
     const chars = [...line];
     let ci = 0;
+    word++;
     font.forEachGlyph(line, 0, li * opts.lineHeight * LAYOUT_SIZE, LAYOUT_SIZE,
       { kerning: opts.kerning, letterSpacing: opts.letterSpacing },
       (glyph, x, y, size) => {
         const rings = flattenCommands(glyph.getPath(x, y, size).commands, 0.35);
         const label = glyph.unicode ? String.fromCodePoint(glyph.unicode) : chars[ci] ?? '?';
         ci++;
-        if (rings.length) items.push({ label, rings, fill: 'nonzero' });
+        if (rings.length) items.push({ label, rings, fill: 'nonzero', word, line: li });
+        else if (/\s/.test(label)) word++;
       });
   });
   return { items };
@@ -124,7 +130,7 @@ export function svgSource(markup: string): Source {
   }
   const seg = Math.max(Math.hypot(maxX - minX, maxY - minY) / 1500, 1e-6);
   const items = shapes
-    .map((s) => ({ label: s.label, rings: flattenCommands(s.cmds, seg), fill: s.fill }))
+    .map((s, i) => ({ label: s.label, rings: flattenCommands(s.cmds, seg), fill: s.fill, word: i, line: 0 }))
     .filter((s) => s.rings.length);
   if (!items.length) throw new Error('No closed shapes found in the SVG');
   return { items };

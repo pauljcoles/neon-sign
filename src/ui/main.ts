@@ -3,6 +3,7 @@ import '../style.css';
 import { type Design, defaultParams, type NeonStyle, type Nudge, type OverlapMode, type Params } from '../geom/design';
 import type { BuildRequest } from '../geom/worker';
 import { type Source, svgSource, textSource } from '../geom/source';
+import { buildSheet, buildSheetHtml, defaultStrip, type StripSpec } from '../export/buildsheet';
 import { buildZip, templateSvg } from '../export/files';
 import { pieceMesh, toBinaryStl } from '../export/mesh';
 import { fitTestPiece, presetWallHeight, STRIP_PRESETS } from '../geom/fittings';
@@ -36,6 +37,8 @@ interface State {
   glowColor: string;
   /** Space kept free on each side of the bed; the max piece size is the bed minus twice this. */
   margin: number;
+  /** The strip being used, for the power and parts numbers (does not change the geometry). */
+  strip: StripSpec;
   params: Params;
   nudges: Record<number, Nudge>;
 }
@@ -46,11 +49,11 @@ const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as 
 function loadState(): State {
   const base: State = {
     source: 'text', text: 'Glow', font: 'Pacifico', letterSpacing: 0, lineHeight: 1.1, kerning: true,
-    glowColor: '#ff3d9a', margin: 8, params: { ...defaultParams }, nudges: {},
+    glowColor: '#ff3d9a', margin: 8, strip: { ...defaultStrip }, params: { ...defaultParams }, nudges: {},
   };
   try {
     const saved = JSON.parse(localStorage.getItem(STORE_KEY) ?? 'null');
-    if (saved) return { ...base, ...saved, source: 'text', params: { ...base.params, ...saved.params } };
+    if (saved) return { ...base, ...saved, source: 'text', strip: { ...base.strip, ...saved.strip }, params: { ...base.params, ...saved.params } };
   } catch { /* storage unavailable */ }
   return base;
 }
@@ -175,7 +178,12 @@ function renderStats(ms: number) {
     cell('Filament', `≈ ${s.filamentGrams.toFixed(0)} g`),
   ].join('');
   el.title = `Computed in ${ms.toFixed(0)} ms`;
+  renderSheet();
   $('export-note').textContent = `${s.pieces} STL file${s.pieces === 1 ? '' : 's'}, each within ${design.params.maxPiece} mm.`;
+}
+
+function renderSheet() {
+  $('buildsheet').innerHTML = design ? buildSheetHtml(buildSheet(design, state.strip), state.strip) : '';
 }
 
 function renderWarnings(extra: string[] = []) {
@@ -319,6 +327,22 @@ function bindControls() {
     schedule(250);
   });
 
+  // Strip electrics only change the build sheet, not the geometry, so no rebuild.
+  for (const key of ['wattsPerMetre', 'cutInterval'] as const) {
+    const input = $<HTMLInputElement>(key);
+    input.value = String(state.strip[key]);
+    input.addEventListener('input', () => {
+      const v = Number(input.value);
+      if (!(v > 0)) return;
+      state.strip[key] = v;
+      renderSheet();
+      save();
+    });
+  }
+  const voltage = $<HTMLSelectElement>('voltage');
+  voltage.value = String(state.strip.voltage);
+  voltage.addEventListener('change', () => { state.strip.voltage = Number(voltage.value) as 12 | 24; renderSheet(); save(); });
+
   $('download-fit').addEventListener('click', () => {
     const piece = fitTestPiece(state.params);
     downloadBlob(new Blob([toBinaryStl(pieceMesh(piece, state.params), 'fit test')], { type: 'model/stl' }), `fit-test-${state.params.stripWidth}mm.stl`);
@@ -409,7 +433,7 @@ function bindControls() {
     const btn = $<HTMLButtonElement>('download');
     btn.disabled = true;
     try {
-      const blob = await buildZip(design, title(), { text: state.source === 'text' ? state.text : svg?.name, font: state.font, letterSpacing: state.letterSpacing, lineHeight: state.lineHeight, params: state.params, nudges: state.nudges });
+      const blob = await buildZip(design, title(), { text: state.source === 'text' ? state.text : svg?.name, font: state.font, letterSpacing: state.letterSpacing, lineHeight: state.lineHeight, params: state.params, nudges: state.nudges, strip: state.strip }, state.strip);
       downloadBlob(blob, `${slug()}-neon-sign.zip`);
     } finally {
       btn.disabled = false;

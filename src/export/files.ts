@@ -3,6 +3,7 @@ import JSZip from 'jszip';
 import type { Paths, Polyline, Ring } from '../geom/clip';
 import type { Design } from '../geom/design';
 import { fitTestPiece } from '../geom/fittings';
+import { buildSheet, buildSheetHtml, defaultStrip, type StripSpec } from './buildsheet';
 import { pieceMesh, toBinaryStl } from './mesh';
 
 export const pieceHue = (i: number) => (i * 137.508) % 360;
@@ -50,15 +51,12 @@ export function templateSvg(d: Design, opts: { labels?: boolean } = {}): string 
 
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
 
-export function assemblyGuide(d: Design, title: string): string {
+export function assemblyGuide(d: Design, title: string, strip: StripSpec = defaultStrip): string {
   const s = d.stats, p = d.params;
   const rows = d.pieces.map((pc) => `<tr><td>${pc.id}</td><td>${(pc.bbox.maxX - pc.bbox.minX).toFixed(0)} × ${(pc.bbox.maxY - pc.bbox.minY).toFixed(0)} mm</td><td>piece-${pc.id}.stl</td></tr>`).join('');
-  // Cut lengths are rounded up to the next 5 mm; the strip can be trimmed, not stretched.
-  const runs = d.runs.map((r, i) => `<tr><td>${i + 1}</td><td>${(Math.ceil(r.length / 5) * 5 / 10).toFixed(1)} cm</td><td>${d.neon[i].closed ? 'loop' : 'line'}</td><td>${r.pieces.join(' → ') || '—'}</td></tr>`).join('');
-  const total = d.runs.reduce((t, r) => t + Math.ceil(r.length / 5) * 5, 0);
   const warn = d.warnings.length ? `<h2>Check before printing</h2><ul>${d.warnings.map((w) => `<li>${esc(w)}</li>`).join('')}</ul>` : '';
   return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)} — assembly guide</title>
-<style>body{font:15px/1.5 system-ui,sans-serif;max-width:900px;margin:2rem auto;padding:0 1rem;color:#222}table{border-collapse:collapse}td,th{border:1px solid #ccc;padding:4px 10px;text-align:left}svg{width:100%;height:auto;border:1px solid #ddd}</style>
+<style>body{font:15px/1.5 system-ui,sans-serif;max-width:900px;margin:2rem auto;padding:0 1rem;color:#222}table{border-collapse:collapse}td,th{border:1px solid #ccc;padding:4px 10px;text-align:left}svg{width:100%;height:auto;border:1px solid #ddd}.warn{color:#a40}.small{color:#666;font-size:13px}</style>
 </head><body>
 <h1>${esc(title)}</h1>
 <p>Lettering ${s.letterWidth.toFixed(0)} × ${s.letterHeight.toFixed(0)} mm · printed body ${s.printedWidth.toFixed(0)} × ${s.printedHeight.toFixed(0)} mm ·
@@ -78,19 +76,20 @@ Channel width ${(p.stripWidth + p.channelClearance).toFixed(1)} mm, walls ${p.wa
 <li>${d.cableHoles.length ? 'Feed the wire of each strip through the hole in the channel floor at the start of its run' : 'Drill a small hole for the feed wire at the start of each run'}, then press the neon strip into the channel. Neon strip bends best with a radius of ${p.minBendRadius} mm or more; at the red-marked spots, warm the strip gently or cut and rejoin it.</li>
 <li>${d.mounts.length ? `Screw the sign to the wall or a backing board through the ${d.mounts.length} mounting holes (${p.screwHoleDiameter} mm, for ${Math.max(2, Math.floor(p.screwHoleDiameter - 0.5))} mm screws).` : 'Mount on a backing board or hang with wire through the bridges.'}</li>
 </ol>
-<h2>Neon runs: cut list</h2>
-<p>Each run starts at its numbered circle on the template, at the cable hole, and follows the arrow. Cut the strip to these lengths (rounded up to 5 mm) and add what your strip needs for the wire end. Total ${(total / 1000).toFixed(2)} m.</p>
-<table><tr><th>Run</th><th>Cut length</th><th>Shape</th><th>Pieces it passes through</th></tr>${runs}</table>
+<h2>Build sheet</h2>
+<p>Each run starts at its numbered circle on the template, at the cable hole, and follows the arrow.</p>
+${buildSheetHtml(buildSheet(d, strip), strip)}
+<p>For filament, LED types, wiring and safety, see the Guide page on the site.</p>
 </body></html>`;
 }
 
-export async function buildZip(d: Design, title: string, settings: unknown): Promise<Blob> {
+export async function buildZip(d: Design, title: string, settings: unknown, strip: StripSpec = defaultStrip): Promise<Blob> {
   const zip = new JSZip();
   const folder = zip.folder('pieces')!;
   for (const p of d.pieces) folder.file(`piece-${p.id}.stl`, toBinaryStl(pieceMesh(p, d.params), `piece ${p.id}`));
   folder.file('fit-test.stl', toBinaryStl(pieceMesh(fitTestPiece(d.params), d.params), 'fit test'));
   zip.file('template.svg', templateSvg(d));
-  zip.file('assembly-guide.html', assemblyGuide(d, title));
+  zip.file('assembly-guide.html', assemblyGuide(d, title, strip));
   zip.file('settings.json', JSON.stringify(settings, null, 2));
   return zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
 }

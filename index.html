@@ -8,7 +8,7 @@
 </head>
 <body>
   <header class="top">
-    <div class="brand"><span class="logo">Glowline</span><span class="tag">LED neon sign maker for 3D printing</span></div>
+    <div class="brand"><span class="logo">Glowline</span><span class="tag">LED neon sign maker for 3D printing</span><a class="guide-link" href="guide.html" target="_blank" rel="noopener">How to build one ↗</a></div>
     <div class="stats" id="stats"></div>
   </header>
   <main class="app">
@@ -124,6 +124,17 @@
         <label class="check"><input type="checkbox" id="labels" /> Engrave piece IDs on the underside</label>
         <label class="field">Engraving depth (mm) <input type="number" id="engraveDepth" min="0.2" max="2" step="0.1" /></label>
         <p class="hint">Screw holes go in solid back plate where there is room, otherwise on a small lug at the edge of the piece.</p>
+      </details>
+
+      <details>
+        <summary>Power &amp; parts</summary>
+        <p class="hint">From your strip's spec sheet. The numbers below update with the design.</p>
+        <label class="field">Strip power (W per metre) <input type="number" id="wattsPerMetre" min="1" max="40" step="0.5" /></label>
+        <label class="field">Strip voltage
+          <select id="voltage"><option value="12">12 V</option><option value="24">24 V</option></select>
+        </label>
+        <label class="field">Cut marks every (mm) <input type="number" id="cutInterval" min="1" max="200" step="1" /></label>
+        <div class="sheet" id="buildsheet"></div>
       </details>
 
       <details open>

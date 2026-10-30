@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Glowline guide — building an LED neon sign</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><path d='M6 24V8l10 12V8m10 16V8' fill='none' stroke='%23ff3d9a' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/></svg>" />
+  <link rel="stylesheet" href="/src/guide.css" />
+</head>
+<body>
+  <header class="g-top">
+    <a class="logo" href="./">Glowline</a>
+    <a class="back" href="./">← Back to the sign maker</a>
+  </header>
+  <main class="g-main">
+    <h1>Building an LED neon sign</h1>
+    <p class="lead">Glowline designs the 3D-printed holder. You add LED neon flex strip and a power supply. This page covers the whole job: choosing a strip, designing, printing, wiring and hanging it.</p>
+
+    <nav class="toc">
+      <a href="#steps">Order of work</a>
+      <a href="#strip">Choosing LED neon</a>
+      <a href="#design">Designing</a>
+      <a href="#print">Filament and printing</a>
+      <a href="#power">Power and wiring</a>
+      <a href="#mount">Mounting</a>
+      <a href="#safety">Safety</a>
+      <a href="#trouble">Troubleshooting</a>
+    </nav>
+
+    <section id="steps">
+      <h2>Order of work</h2>
+      <ol class="steps">
+        <li><b>Choose the strip first.</b> Its width sets the channel, and its power sets the supply. Note its width × height, voltage, watts per metre and how far apart the cut marks are.</li>
+        <li><b>Enter the strip in the sign maker</b> (Neon strip and Power &amp; parts sections), then design the sign.</li>
+        <li><b>Print the fit test piece</b> (Neon strip section, about 10 minutes). Press a length of strip in. Adjust the channel clearance until it goes in with a firm push and stays put.</li>
+        <li><b>Read the Check list</b> under the settings and fix what you can: tight bends, joints without connectors, pieces too big.</li>
+        <li><b>Download the ZIP</b> and print every piece flat side down.</li>
+        <li><b>Lay the pieces out</b> on the printed template (check its 100 mm scale bar measures 100 mm). Each piece's ID is engraved on its underside and shown on the template.</li>
+        <li><b>Glue the joints</b> and let them cure.</li>
+        <li><b>Test the strip before cutting</b>: connect it to the supply for a few seconds to check it lights and the polarity is right.</li>
+        <li><b>Cut each run</b> at the cut marks, using the cut list in the assembly guide. Fit the feed lead at the start and an end cap at the far end, and seal them.</li>
+        <li><b>Fit the strip</b>: push the lead through the cable hole at the numbered start, then press the strip into the channel following the arrow.</li>
+        <li><b>Wire the runs to the supply</b> and test again before mounting.</li>
+        <li><b>Mount it</b> with screws through the mounting holes, or on a backing board.</li>
+      </ol>
+    </section>
+
+    <section id="strip">
+      <h2>Choosing LED neon</h2>
+      <p>LED neon flex is a strip of LEDs inside a silicone sleeve that spreads the light into a smooth line. It runs on low-voltage DC (usually 12 V or 24 V) from a separate power supply.</p>
+      <h3>Size</h3>
+      <p>Strips are sold as width × height in mm, for example 6 × 12. The width is what sits in the channel. Pick it in the <b>Strip size</b> list, or type the width yourself. 6 mm is the usual choice for lettering 30–100 cm wide; wider strips suit larger signs and need gentler curves.</p>
+      <h3>Bend direction</h3>
+      <p>In a Glowline sign the strip lies in the channel with its lit face pointing straight out of the sign, and curves left and right around the letters. Strips are sold as "top-bend" or "side-bend", but sellers use those names in opposite ways. Go by the seller's photo of the strip bent into a curve, and confirm with the fit test piece: the strip must take the bend while lying flat in the channel.</p>
+      <h3>Bend radius</h3>
+      <p>Each strip has a minimum bend radius. Enter it as <b>Min bend radius</b>; the preview marks tighter curves with red rings. A strip forced round a tighter curve may kink, show dark spots or pop out of the channel.</p>
+      <h3>12 V or 24 V</h3>
+      <ul>
+        <li><b>24 V</b> draws half the current of 12 V for the same brightness, so it can run further before the far end dims, and thinner wire will do. Good for bigger signs.</li>
+        <li><b>12 V</b> strips often have closer cut marks, which suits small lettering with short runs.</li>
+        <li>Whichever you choose, the power supply must match it.</li>
+      </ul>
+      <h3>Cut marks</h3>
+      <p>The strip can only be cut at its marks (often every 1–5 cm). Each cut piece needs its own feed lead and end cap. Glowline rounds each run down to the last mark that fits, because the strip cannot stretch; the end of the channel may stay a little dark.</p>
+      <h3>Colour options</h3>
+      <ul>
+        <li><b>Single colour</b>: two wires, simplest. Warm white, pink, ice blue and so on.</li>
+        <li><b>RGB</b>: changes colour as a whole. Needs an RGB controller and usually four wires.</li>
+        <li><b>Addressable (pixel)</b>: each section can be a different colour, for animations. Needs a matching controller; check its wiring.</li>
+      </ul>
+      <h3>Power draw</h3>
+      <p>The spec sheet gives watts per metre. Small single-colour 6 mm neon is often somewhere around 6–12 W/m; bigger and brighter strips draw more. Use the figure for your strip in the <b>Power &amp; parts</b> section.</p>
+    </section>
+
+    <section id="design">
+      <h2>Designing</h2>
+      <ul>
+        <li><b>Outline or single line.</b> Outline runs the strip round each letter and suits bold fonts. Single line runs one strip down the middle of each stroke, like traditional glass neon, and suits script and thin fonts.</li>
+        <li><b>Fewer, longer runs</b> mean fewer leads and end caps to fit. Letter spacing that makes script letters touch lets them share a run. The run count is in the stats bar.</li>
+        <li><b>Drag letters, words or lines</b> to rearrange them. Pause while dragging to see the cut into pieces update.</li>
+        <li><b>Body style.</b> Back plate is the strongest all-round choice. Solid letters look more finished from the side but use more filament. Channel only uses least filament and shows the wall behind.</li>
+        <li><b>Loose parts</b>, such as the dot on an i, are joined by bridges. Raise the bridge height to stiffen big signs.</li>
+      </ul>
+    </section>
+
+    <section id="print">
+      <h2>Filament and printing</h2>
+      <h3>Which filament</h3>
+      <ul>
+        <li><b>PETG</b> is a good default. It copes with the warmth of the strip and of a sunny room.</li>
+        <li><b>PLA</b> prints most easily and is fine somewhere cool. It starts to soften at about 55–60 °C, so avoid it for signs in sunny windows, cars or warm shop fronts.</li>
+        <li><b>ASA</b> for anything outdoors or in strong sunlight: it resists heat and UV. It needs a printer that handles it (an enclosure helps).</li>
+      </ul>
+      <h3>Which colour</h3>
+      <p>Black or a dark colour hides the plastic when the sign is lit, so you mostly see the glowing line, and it blocks light leaking sideways. White looks clean when the sign is off and on a white wall, but glows a little itself. Matching the wall colour makes the holder disappear in daylight.</p>
+      <h3>Settings that work</h3>
+      <ul>
+        <li>0.4 mm nozzle, 0.2 mm layers, 3 walls, 15% infill, no supports.</li>
+        <li>Print each piece flat side down, as it comes out of the ZIP. The engraved ID is on the underside, so it faces the bed.</li>
+        <li>Use a brim on long thin pieces if they lift at the corners.</li>
+        <li>The filament figure in the sign maker assumes solid plastic. Your slicer will show the real weight and time, usually less.</li>
+      </ul>
+      <h3>Fit and connectors</h3>
+      <p>If the strip is loose in the fit test, lower the <b>channel clearance</b>; if it will not go in, raise it. If the dovetail connectors are too tight or loose, change the <b>connector clearance</b>. Small connectors on narrow joints line the pieces up; glue them as well.</p>
+    </section>
+
+    <section id="power">
+      <h2>Power and wiring</h2>
+      <h3>Sizing the supply</h3>
+      <p class="formula">watts = metres of strip × watts per metre<br />amps = watts ÷ volts<br />supply = watts × 1.2 or more</p>
+      <p>The <b>Power &amp; parts</b> section does this for your design. The 20% headroom keeps the supply cool and long-lived.</p>
+      <h3>Kinds of supply</h3>
+      <ul>
+        <li><b>Plug-in adapters</b> (like a laptop charger, with a barrel plug) are the easiest for small signs, up to about 60 W.</li>
+        <li><b>Enclosed supplies</b> handle more power but have screw terminals for mains wiring. Have mains connections made by someone qualified.</li>
+        <li>Buy a certified supply (CE/UKCA in Europe and the UK, UL in North America) with the right voltage for your strip.</li>
+      </ul>
+      <h3>Wiring the runs</h3>
+      <ul>
+        <li>Wire each run back to the supply separately (in parallel), rather than chaining runs end to end.</li>
+        <li>Long runs dim towards the far end. As a rough guide, feed 12 V runs over about 5 m, or 24 V runs over about 10 m, from both ends. The sign maker warns when a run is that long.</li>
+        <li>Red is positive (+), black negative (−). Reversed polarity usually just means no light, but check before sealing anything.</li>
+        <li>Join wires by soldering and covering with heat-shrink, or use clip-on connectors made for your strip size. Seal strip ends and joints with silicone and an end cap.</li>
+        <li>Tie a knot or put a dab of glue on the lead behind the cable hole, so pulling on the wire cannot tear the strip.</li>
+        <li>The Power &amp; parts section suggests a wire size for the current. For long leads go a size thicker.</li>
+      </ul>
+      <h3>Switches, dimmers and controllers</h3>
+      <p>Inline switches, dimmers and colour controllers go between the supply and the sign. Pick ones rated for your voltage and at least the sign's current.</p>
+    </section>
+
+    <section id="mount">
+      <h2>Mounting</h2>
+      <ul>
+        <li><b>Screw holes</b> sit inside the letters where there is solid plate, or on small lugs at the edge of a piece. Use pan-head screws and wall plugs suited to your wall.</li>
+        <li><b>Backing board</b>: for a clean look, glue the sign onto clear or black acrylic, or painted plywood. Print or laser-cut the 1:1 template to mark it out. A board also hides the wires and lets you hang the whole sign as one.</li>
+        <li>Plan where the wire leaves the sign and where the supply sits, before you drill.</li>
+      </ul>
+    </section>
+
+    <section id="safety">
+      <h2>Safety</h2>
+      <ul>
+        <li>Only the strip and its low-voltage leads go in the printed holder. Keep mains wiring out of it.</li>
+        <li>Use a certified power supply of the right voltage, sized with headroom. Give it air: do not seal it inside a printed or wooden box.</li>
+        <li>Unplug before working on the wiring.</li>
+        <li>Do not run a whole reel while it is still coiled; it can overheat. Uncoil it for testing.</li>
+        <li>Printed plastic burns. Keep the sign away from heaters and do not leave a damaged or flickering sign switched on.</li>
+      </ul>
+    </section>
+
+    <section id="trouble">
+      <h2>Troubleshooting</h2>
+      <table>
+        <tr><th>Problem</th><th>Fix</th></tr>
+        <tr><td>Strip pops out of the channel</td><td>Lower the channel clearance (try 0.2 mm) and reprint, or add a few dabs of clear silicone. Check the curve is not tighter than the strip's bend radius.</td></tr>
+        <tr><td>Strip will not go in</td><td>Raise the channel clearance. Check the strip width you entered matches the strip.</td></tr>
+        <tr><td>Far end of a run is dimmer</td><td>Feed the run from both ends, use thicker wire, or switch to 24 V strip.</td></tr>
+        <tr><td>Flickers, or the supply gets hot</td><td>The supply is too small or failing. Check the watts in Power &amp; parts and use a bigger supply.</td></tr>
+        <tr><td>One run does not light</td><td>Check polarity and the connection at the cable hole. Make sure it was cut on a mark.</td></tr>
+        <tr><td>Connectors too tight or loose</td><td>Change the connector clearance, or sand lightly. Glue them in either case.</td></tr>
+        <tr><td>Pieces warp or lift while printing</td><td>Clean the bed, use a brim, and for PETG or ASA slow down the first layer.</td></tr>
+        <tr><td>Dark gap at the end of a run</td><td>The strip had to stop at its last cut mark. A strip with closer cut marks shortens the gap.</td></tr>
+      </table>
+      <p class="note">All figures here are typical values. Your strip's and supply's spec sheets come first.</p>
+    </section>
+  </main>
+</body>
+</html>

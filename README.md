@@ -15,6 +15,9 @@ npm run build      # static site in dist/
 
 ## Using it
 
+The site has a **How to build one** guide (`guide.html`): order of work, choosing LED neon (sizes, bend direction, 12 V vs 24 V, cut marks, colour types), filament and print settings, power supplies and wiring, mounting, safety and troubleshooting.
+
+
 1. **Content**: type your text (Enter starts a new line), pick a font or upload a TTF/OTF/WOFF file. Single-line fonts such as Relief SingleLine work too: their there-and-back strokes are used as centre lines. Or switch to **SVG** and upload a drawing. Filled shapes are traced; lines with a stroke and no fill are used as the neon path exactly as drawn.
    **Neon runs** picks the style:
    - *Around each letter (outline)*: the strip follows the letter outlines. Best with bold fonts.
@@ -35,8 +38,9 @@ npm run build      # static site in dist/
    - **Screw holes for mounting**: in solid back plate where there is room (inside letters, on bridges), otherwise on a small lug on the outer edge of the piece. Wide pieces get two.
    - **Engraved piece IDs** on the underside (0.6 mm deep, mirrored so they read correctly with the piece turned over), on plain floor with no wall above.
 7. **Layers**: pieces, walls, bridges, neon path, cuts and tight-bend markers. **Glow** shows a lit-up preview in the chosen colour.
-8. **Runs**: each run starts at its cable hole (numbered pink circle in the preview and on the template, with an arrow for direction). The assembly guide has a cut list: length per run, rounded up to 5 mm, and the pieces it passes through.
-9. **Download ZIP**: `pieces/piece-A1.stl …`, `pieces/fit-test.stl`, `template.svg` (1:1, with a 100 mm scale bar), `assembly-guide.html` and `settings.json`.
+8. **Power & parts**: enter your strip's watts per metre, voltage and cut-mark spacing. You get the power draw, a supply size with 20% headroom, a wire size, a warning if a run is long enough to need feeding from both ends, a strip cut list (each run cut at the last mark that fits), how much strip to buy and a shopping list. The same build sheet goes into the assembly guide.
+9. **Runs**: each run starts at its cable hole (numbered pink circle in the preview and on the template, with an arrow for direction). The assembly guide has a cut list: length per run, rounded up to 5 mm, and the pieces it passes through.
+10. **Download ZIP**: `pieces/piece-A1.stl …`, `pieces/fit-test.stl`, `template.svg` (1:1, with a 100 mm scale bar), `assembly-guide.html` and `settings.json`.
 
 Piece names are a column letter (from the left) plus a row number (from the top). `A1` is the top-left piece.
 
@@ -54,7 +58,7 @@ The stats bar shows lettering size, printed size, piece count, metres of neon (a
 
 ## Checked so far
 
-- Unit tests cover run order and the cut list, engraved labels clear of walls, body styles and raised bridges, size by height, even-grid cuts, single-line font strokes, the fit-test piece for every strip preset, cable holes (one per run, in the channel, clear of cuts), screw holes and lugs, single-line centrelines (bars, rings, crosses, T junctions, stroked lines, dropped dots), offsets, channel width, neon length (merge and stacked), tight-bend detection, cut placement, row splitting, connectors, SVG path parsing (arcs, relative commands), word/line grouping, and watertight meshes for all three bundled fonts.
+- Unit tests cover the build sheet (cut marks, supply sizing, 12 vs 24 V, long-run warning), run order and the cut list, engraved labels clear of walls, body styles and raised bridges, size by height, even-grid cuts, single-line font strokes, the fit-test piece for every strip preset, cable holes (one per run, in the channel, clear of cuts), screw holes and lugs, single-line centrelines (bars, rings, crosses, T junctions, stroked lines, dropped dots), offsets, channel width, neon length (merge and stacked), tight-bend detection, cut placement, row splitting, connectors, SVG path parsing (arcs, relative commands), word/line grouping, and watertight meshes for all three bundled fonts.
 - A 700 mm "Neon Bar" export sliced without errors in the Bambu Studio CLI with the P2S 0.4 mm / 0.20 mm Standard / PLA Basic profiles.
 
 ## Fonts

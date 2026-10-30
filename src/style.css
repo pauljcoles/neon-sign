@@ -115,6 +115,19 @@ button.link { background: none; border: 0; color: var(--accent-2); padding: 4px 
 .seg button { border: 0; border-radius: 0; background: transparent; padding: 6px 14px; }
 .seg button.on { background: var(--accent); color: #fff; }
 
+.guide-link { color: var(--accent-2); font-size: 13px; text-decoration: none; }
+.guide-link:hover { text-decoration: underline; }
+
+.sheet { font-size: 12px; color: var(--text); }
+.sheet h3 { font-size: 13px; margin: 14px 0 4px; }
+.sheet p { margin: 4px 0 8px; color: var(--muted); }
+.sheet p b { color: var(--text); }
+.sheet table { width: 100%; border-collapse: collapse; margin-bottom: 8px; }
+.sheet th, .sheet td { border-bottom: 1px solid var(--line); padding: 3px 4px; text-align: left; vertical-align: top; }
+.sheet th { color: var(--muted); font-weight: 600; }
+.sheet .warn { color: #ffb347; }
+.sheet .small { font-size: 11px; }
+
 .warnings { padding: 12px 16px; font-size: 13px; }
 .warnings h3 { margin: 0 0 6px; font-size: 13px; color: #ffb347; }
 .warnings ul { margin: 0; padding-left: 18px; }

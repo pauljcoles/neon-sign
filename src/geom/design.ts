@@ -1,16 +1,20 @@
 // The whole pipeline: source outlines -> neon path -> printed body -> pieces.
 import {
-  type BBox, type Paths, type Polyline, type Pt, type Ring, bbox, clipLines, difference, polylineLength,
-  simplify, toPolys, totalArea, tube, union,
+  type BBox, type Paths, type Polyline, type Pt, type Ring, bbox, clipLines, difference, pointInPaths, polylineLength,
+  simplify, simplifyChain, toPolys, totalArea, tube, union,
 } from './clip';
+import { centrelines } from './skeleton';
 import type { Source } from './source';
 import { type Piece, type SplitResult, splitBody } from './split';
 
 export type OverlapMode = 'merge' | 'later-on-top' | 'earlier-on-top';
+/** `outline` runs the neon around each letter; `single` runs one line down the middle of each stroke. */
+export type NeonStyle = 'outline' | 'single';
 
 export interface Params {
   /** Overall width of the lettering in mm. */
   width: number;
+  neonStyle: NeonStyle;
   overlap: OverlapMode;
   stripWidth: number;
   channelClearance: number;
@@ -28,6 +32,7 @@ export interface Params {
 
 export const defaultParams: Params = {
   width: 500,
+  neonStyle: 'outline',
   overlap: 'merge',
   stripWidth: 6,
   channelClearance: 0.4,
@@ -46,7 +51,13 @@ export const defaultParams: Params = {
 /** Per-item nudge in layout units (same units as the source outlines). */
 export interface Nudge { dx: number; dy: number }
 
-export interface DesignItem { label: string; fill: Paths }
+export interface DesignItem {
+  label: string;
+  /** The item's area: the letter shape, or a stroked SVG line widened to its stroke width. Used for dragging. */
+  fill: Paths;
+  /** Centre lines that came straight from stroked SVG paths. */
+  lines: Polyline[];
+}
 
 export interface Stats {
   letterWidth: number;
@@ -87,24 +98,30 @@ const NO_SPLIT: SplitResult = { xCuts: [], yCuts: [], tabs: [], joints: [], piec
  */
 export function buildDesign(src: Source, params: Params, nudges: Record<number, Nudge> = {}, opts: { split?: boolean } = {}): Design | null {
   if (!src.items.length) return null;
-  const raw = bbox(src.items.flatMap((i) => i.rings));
+  const raw = bbox(src.items.flatMap((i) => [...i.rings, ...(i.lines ?? []).map((l) => l.pts)]));
   const w = raw.maxX - raw.minX;
   if (!(w > 0)) return null;
   const scale = params.width / w;
   const items: DesignItem[] = src.items.map((it, idx) => {
     const n = nudges[idx] ?? { dx: 0, dy: 0 };
-    const rings: Ring[] = it.rings.map((r) => r.map(([x, y]) => [(x + n.dx - raw.minX) * scale, (raw.maxY - (y + n.dy)) * scale] as Pt));
+    const map = (r: Pt[]) => r.map(([x, y]) => [(x + n.dx - raw.minX) * scale, (raw.maxY - (y + n.dy)) * scale] as Pt);
+    const rings: Ring[] = it.rings.map(map);
+    const lines: Polyline[] = (it.lines ?? []).map((l) => ({ pts: simplifyChain(map(l.pts), 0.05), closed: l.closed }));
     // Flattened curves are denser than needed; 0.05 mm deviation is invisible in print and keeps clipping fast.
-    return { label: it.label, fill: simplify(union(rings, [], it.fill), 0.05) };
+    const shape = rings.length ? simplify(union(rings, [], it.fill), 0.05) : [];
+    const stroke = lines.length ? tube(lines, Math.max(0.5, ((it.strokeWidth ?? 1) * scale) / 2)) : [];
+    return { label: it.label, fill: stroke.length ? union(shape, stroke) : shape, lines };
   });
   const fill = union(items.flatMap((i) => i.fill));
-  const neon = neonPaths(items, fill, params.overlap);
+  const single = params.neonStyle === 'single';
+  const neon = single ? singleLinePaths(items, params.overlap) : neonPaths(items, fill, params.overlap);
 
   const half = (params.stripWidth + params.channelClearance) / 2;
   const channel = tube(neon, half);
   const band = tube(neon, half + params.wallThickness);
   const walls = simplify(difference(band, channel), 0.03);
-  const footprint = union(fill, band);
+  // In single-line mode the body is just the channel: the letter shape itself is not printed.
+  const footprint = single ? band : union(fill, band);
   const bridges = params.bridges ? bridgeIslands(footprint, params.bridgeWidth, params.wallThickness + 1) : [];
   const base = bridges.length ? union(footprint, bridges) : footprint;
   const tight = tightSpots(neon, params.minBendRadius);
@@ -121,6 +138,11 @@ export function buildDesign(src: Source, params: Params, nudges: Record<number, 
   const warnings: string[] = [];
   const islands = toPolys(base).length;
   if (islands > 1) warnings.push(`${islands} separate parts are not joined to each other${params.bridges ? '' : ' (bridges are off)'} — mount them on a backing board.`);
+  if (single) {
+    const neonPts = neon.flatMap((l) => l.pts);
+    const lost = toPolys(fill).filter((p) => !neonPts.some(([x, y]) => pointInPaths([p.outer, ...p.holes], x, y))).length;
+    if (lost) warnings.push(`${lost} small shape${lost > 1 ? 's are' : ' is'} too small for a line of neon (like the dot on an i) and ${lost > 1 ? 'are' : 'is'} left out.`);
+  }
   if (tight.length) warnings.push(`${tight.length} spot${tight.length > 1 ? 's' : ''} on the neon path bend tighter than ${params.minBendRadius} mm radius (shown as red rings).`);
   if (params.maxPiece > params.bedSize) warnings.push(`Max piece size ${params.maxPiece} mm is larger than the ${params.bedSize} mm bed.`);
   warnings.push(...split.warnings);
@@ -161,6 +183,18 @@ export function neonPaths(items: DesignItem[], fill: Paths, mode: OverlapMode): 
     const own = rings(order[i].fill);
     out.push(...(above.length ? clipLines(own, above, false) : own));
   }
+  return out.filter((l) => polylineLength(l) > 1);
+}
+
+/**
+ * Single-line neon: stroked SVG lines are used as they are; filled shapes are reduced to their centre line.
+ * In merge mode overlapping letters are fused first, so joined script letters give one continuous line.
+ */
+export function singleLinePaths(items: DesignItem[], mode: OverlapMode): Polyline[] {
+  const out: Polyline[] = items.flatMap((i) => i.lines);
+  const shapes = items.filter((i) => !i.lines.length).map((i) => i.fill);
+  if (mode === 'merge') out.push(...centrelines(union(shapes.flat())));
+  else for (const s of shapes) out.push(...centrelines(s));
   return out.filter((l) => polylineLength(l) > 1);
 }
 

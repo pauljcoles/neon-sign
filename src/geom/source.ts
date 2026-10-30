@@ -1,6 +1,6 @@
 // Turns text (via opentype.js) or SVG markup into flat outline items in "layout units" (y down).
 import type { Font, PathCommand } from 'opentype.js';
-import type { FillRule, Pt, Ring } from './clip';
+import type { FillRule, Polyline, Pt, Ring } from './clip';
 
 /** One draggable thing in the design: a glyph or an SVG shape. */
 export interface SourceItem {
@@ -10,6 +10,9 @@ export interface SourceItem {
   /** Word and line the item belongs to, so whole words or lines can be dragged together. */
   word: number;
   line: number;
+  /** Stroked (unfilled) SVG paths: already a centre line. `strokeWidth` is in layout units. */
+  lines?: Polyline[];
+  strokeWidth?: number;
 }
 
 export interface Source { items: SourceItem[] }
@@ -48,17 +51,23 @@ export function textSource(font: Font, text: string, opts: TextOptions): Source 
 
 /** Converts path commands to closed polylines. `seg` is the target segment length in the commands' units. */
 export function flattenCommands(cmds: PathCommand[], seg: number): Ring[] {
-  const rings: Ring[] = [];
+  return flattenSubpaths(cmds, seg).filter((l) => l.pts.length >= 3).map((l) => l.pts);
+}
+
+/** Like `flattenCommands`, but keeps track of which subpaths were closed with Z (for stroked lines). */
+export function flattenSubpaths(cmds: PathCommand[], seg: number): Polyline[] {
+  const out: Polyline[] = [];
   let cur: Pt[] = [];
   let px = 0, py = 0, sx = 0, sy = 0;
-  const close = () => {
+  const finish = (closed: boolean) => {
     if (cur.length > 1) {
       const a = cur[0], b = cur[cur.length - 1];
-      if (Math.abs(a[0] - b[0]) < 1e-9 && Math.abs(a[1] - b[1]) < 1e-9) cur.pop();
+      if (Math.abs(a[0] - b[0]) < 1e-9 && Math.abs(a[1] - b[1]) < 1e-9) { cur.pop(); closed = true; }
     }
-    if (cur.length >= 3) rings.push(cur);
+    if (cur.length >= 2) out.push({ pts: cur, closed });
     cur = [];
   };
+  const close = () => finish(false);
   const steps = (len: number) => Math.max(2, Math.min(64, Math.ceil(len / seg)));
   for (const c of cmds) {
     switch (c.type) {
@@ -91,13 +100,13 @@ export function flattenCommands(cmds: PathCommand[], seg: number): Ring[] {
         break;
       }
       case 'Z':
-        close();
+        finish(true);
         px = sx; py = sy;
         break;
     }
   }
   close();
-  return rings;
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -106,34 +115,62 @@ export function flattenCommands(cmds: PathCommand[], seg: number): Ring[] {
 type Matrix = [number, number, number, number, number, number];
 const IDENTITY: Matrix = [1, 0, 0, 1, 0, 0];
 
-/** Parses SVG markup into source items. Closed filled shapes only; transforms are honoured. */
+/**
+ * Parses SVG markup into source items. Filled shapes become outlines; shapes with `fill="none"` and a stroke
+ * become centre lines (best with single-line mode). Transforms are honoured.
+ */
 export function svgSource(markup: string): Source {
   const doc = new DOMParser().parseFromString(markup, 'image/svg+xml');
   const root = doc.documentElement;
   if (!root || root.nodeName.toLowerCase() !== 'svg') throw new Error('Not an SVG file');
-  const shapes: { label: string; cmds: PathCommand[]; fill: FillRule }[] = [];
-  const visit = (el: Element, m: Matrix, inheritedRule: FillRule) => {
+  const shapes: { label: string; cmds: PathCommand[]; fill: FillRule; stroke?: number }[] = [];
+  const visit = (el: Element, m: Matrix, inheritedRule: FillRule, inheritedPaint: Paint) => {
     const tag = el.localName;
     if (['defs', 'clipPath', 'mask', 'symbol', 'style', 'title', 'metadata'].includes(tag)) return;
     const mm = mul(m, parseTransform(el.getAttribute('transform') ?? ''));
     const ruleAttr = el.getAttribute('fill-rule') ?? styleProp(el, 'fill-rule');
     const rule: FillRule = ruleAttr === 'evenodd' ? 'evenodd' : ruleAttr === 'nonzero' ? 'nonzero' : inheritedRule;
+    const paint = paintOf(el, inheritedPaint);
     const d = shapeToPath(el);
     // Affine transforms map Bézier curves to Bézier curves, so transform the control points before flattening.
-    if (d) shapes.push({ label: el.getAttribute('id') ?? tag, cmds: parsePathData(d).map((c) => transformCommand(c, mm)), fill: rule });
-    for (const child of Array.from(el.children)) visit(child, mm, rule);
+    if (d && (paint.fill || paint.stroke)) {
+      shapes.push({
+        label: el.getAttribute('id') ?? tag,
+        cmds: parsePathData(d).map((c) => transformCommand(c, mm)),
+        fill: rule,
+        stroke: paint.fill ? undefined : paint.strokeWidth * Math.sqrt(Math.abs(mm[0] * mm[3] - mm[1] * mm[2])),
+      });
+    }
+    for (const child of Array.from(el.children)) visit(child, mm, rule, paint);
   };
-  visit(root, IDENTITY, 'nonzero');
+  visit(root, IDENTITY, 'nonzero', { fill: true, stroke: false, strokeWidth: 1 });
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
   for (const s of shapes) for (const c of s.cmds) if (c.x !== undefined) {
     minX = Math.min(minX, c.x); maxX = Math.max(maxX, c.x); minY = Math.min(minY, c.y!); maxY = Math.max(maxY, c.y!);
   }
   const seg = Math.max(Math.hypot(maxX - minX, maxY - minY) / 1500, 1e-6);
-  const items = shapes
-    .map((s, i) => ({ label: s.label, rings: flattenCommands(s.cmds, seg), fill: s.fill, word: i, line: 0 }))
-    .filter((s) => s.rings.length);
-  if (!items.length) throw new Error('No closed shapes found in the SVG');
+  const items: SourceItem[] = shapes
+    .map((s, i): SourceItem => s.stroke === undefined
+      ? { label: s.label, rings: flattenCommands(s.cmds, seg), fill: s.fill, word: i, line: 0 }
+      : { label: s.label, rings: [], fill: 'nonzero', word: i, line: 0, lines: flattenSubpaths(s.cmds, seg), strokeWidth: s.stroke })
+    .filter((s) => s.rings.length || s.lines?.length);
+  if (!items.length) throw new Error('No shapes found in the SVG');
   return { items };
+}
+
+interface Paint { fill: boolean; stroke: boolean; strokeWidth: number }
+
+/** Whether a shape is filled or only stroked, following SVG inheritance (fill defaults to black, stroke to none). */
+function paintOf(el: Element, parent: Paint): Paint {
+  const fill = el.getAttribute('fill') ?? styleProp(el, 'fill');
+  const stroke = el.getAttribute('stroke') ?? styleProp(el, 'stroke');
+  const sw = el.getAttribute('stroke-width') ?? styleProp(el, 'stroke-width');
+  const w = sw === null ? NaN : parseFloat(sw);
+  return {
+    fill: fill === null ? parent.fill : fill !== 'none' && fill !== 'transparent',
+    stroke: stroke === null ? parent.stroke : stroke !== 'none' && stroke !== 'transparent',
+    strokeWidth: w > 0 ? w : parent.strokeWidth,
+  };
 }
 
 function transformCommand(c: PathCommand, m: Matrix): PathCommand {
@@ -168,10 +205,12 @@ function shapeToPath(el: Element): string | null {
       if (rx <= 0 || ry <= 0) return null;
       return `M${cx - rx} ${cy}A${rx} ${ry} 0 1 0 ${cx + rx} ${cy}A${rx} ${ry} 0 1 0 ${cx - rx} ${cy}Z`;
     }
-    case 'polygon': {
+    case 'polygon': case 'polyline': {
       const pts = el.getAttribute('points')?.trim();
-      return pts ? `M${pts}Z` : null;
+      return pts ? `M${pts}${el.localName === 'polygon' ? 'Z' : ''}` : null;
     }
+    case 'line':
+      return `M${num(el, 'x1')} ${num(el, 'y1')}L${num(el, 'x2')} ${num(el, 'y2')}`;
     default: return null;
   }
 }

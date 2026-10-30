@@ -1,6 +1,6 @@
 import { type Font, parse } from 'opentype.js';
 import '../style.css';
-import { type Design, defaultParams, type Nudge, type OverlapMode, type Params } from '../geom/design';
+import { type Design, defaultParams, type NeonStyle, type Nudge, type OverlapMode, type Params } from '../geom/design';
 import type { BuildRequest } from '../geom/worker';
 import { type Source, svgSource, textSource } from '../geom/source';
 import { buildZip, templateSvg } from '../export/files';
@@ -227,6 +227,16 @@ function bindControls() {
   const overlap = $<HTMLSelectElement>('overlap');
   overlap.value = state.params.overlap;
   overlap.addEventListener('change', () => { state.params.overlap = overlap.value as OverlapMode; schedule(0); });
+
+  const styles = [$<HTMLSelectElement>('neonStyle'), $<HTMLSelectElement>('neonStyle-svg')];
+  for (const sel of styles) {
+    sel.value = state.params.neonStyle;
+    sel.addEventListener('change', () => {
+      state.params.neonStyle = sel.value as NeonStyle;
+      for (const other of styles) other.value = sel.value;
+      schedule(0);
+    });
+  }
 
   $('reset-nudges').addEventListener('click', () => { state.nudges = {}; svgNudges = {}; schedule(0); });
 

@@ -15,7 +15,10 @@ npm run build      # static site in dist/
 
 ## Using it
 
-1. **Content**: type your text (Enter starts a new line), pick a font or upload a TTF/OTF/WOFF file. Or switch to **SVG** and upload a drawing made of closed, filled shapes.
+1. **Content**: type your text (Enter starts a new line), pick a font or upload a TTF/OTF/WOFF file. Or switch to **SVG** and upload a drawing. Filled shapes are traced; lines with a stroke and no fill are used as the neon path exactly as drawn.
+   **Neon runs** picks the style:
+   - *Around each letter (outline)*: the strip follows the letter outlines. Best with bold fonts.
+   - *Down the middle of each stroke (single line)*: one strip down the centre of each stroke, like classic neon. Best with script and thin fonts. The printed body is just the channel around that line. Where strokes cross (an "x", a script loop) the strip runs straight through; where one stroke meets another side-on (a "T"), it becomes a separate run. Dots too small for a line (the dot on an "i") are left out, with a warning.
 2. **Letter spacing**: negative values push letters into each other. **Where letters overlap** decides how the neon runs:
    - *Merge*: one outline around the fused letters.
    - *Right-hand / left-hand letter on top*: the top letter keeps its full outline, so a seam line runs across the overlap.
@@ -33,6 +36,7 @@ The stats bar shows lettering size, printed size, piece count, metres of neon (a
 
 - Glyph outlines come from opentype.js, are flattened to polylines, scaled to the requested width, and unioned per letter. Polygon booleans and offsets use clipper-lib, working in micrometres.
 - **Neon path**: the outline of the fused letters, or in the stacking modes each letter's outline minus whatever lies on top of it.
+- **Single line**: the letter shape is rasterised at about 0.3 mm, thinned to a one-pixel skeleton (Zhang–Suen), and traced into chains. Short side spurs are pruned, two junctions closer than the mean stroke width are treated as one crossing, and at each junction the two straightest branches are joined so the strip runs through. The chains are then smoothed and simplified.
 - **Body**: channel = band of half-width `(strip + clearance) / 2` around the neon path. Walls = band widened by the wall thickness, minus the channel. Base plate = letter fill ∪ wall band ∪ bridges. Bridges join separate islands along a minimum spanning tree of closest points, at base-plate height.
 - **Splitting**: cuts are picked along x (and along y if the sign is too tall) so each cell is at most `maxPiece − connector depth`. Each cut goes where the line crosses the least material. Every joint long enough gets a dovetail placed in solid material, away from the walls where possible. The mating piece gets a socket grown by the connector clearance.
 - **STL**: each piece is two closed prisms (base plate, and walls from z = 0), triangulated with earcut, written as binary STL and centred on a 256 mm bed. Slicers merge the overlapping shells.
@@ -40,7 +44,7 @@ The stats bar shows lettering size, printed size, piece count, metres of neon (a
 
 ## Checked so far
 
-- Unit tests cover offsets, channel width, neon length (merge and stacked), tight-bend detection, cut placement, row splitting, connectors, SVG path parsing (arcs, relative commands), word/line grouping, and watertight meshes for all three bundled fonts.
+- Unit tests cover single-line centrelines (bars, rings, crosses, T junctions, stroked lines, dropped dots), offsets, channel width, neon length (merge and stacked), tight-bend detection, cut placement, row splitting, connectors, SVG path parsing (arcs, relative commands), word/line grouping, and watertight meshes for all three bundled fonts.
 - A 700 mm "Neon Bar" export sliced without errors in the Bambu Studio CLI with the P2S 0.4 mm / 0.20 mm Standard / PLA Basic profiles.
 
 ## Fonts

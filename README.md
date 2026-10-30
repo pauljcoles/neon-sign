@@ -24,9 +24,12 @@ npm run build      # static site in dist/
    - *Right-hand / left-hand letter on top*: the top letter keeps its full outline, so a seam line runs across the overlap.
 3. **Move things**: drag in the preview. The toolbar switch sets whether a drag moves a **Letter**, a **Word** or a **Line**. The neon channel re-renders live while you drag. The cut into pieces is redone when you let go. Drag empty space to pan; scroll to zoom. *Reset moved letters and words* undoes all moves.
 4. **Size**: set the lettering width in mm, the max piece size (240 mm by default, leaving margin on a 256 mm bed) and the bed size.
-5. **Neon strip / Printed body**: strip width, channel clearance, wall thickness and height, base thickness, bridges between loose letters, and dovetail connectors with their clearance.
-6. **Layers**: pieces, walls, bridges, neon path, cuts and tight-bend markers. **Glow** shows a lit-up preview in the chosen colour.
-7. **Download ZIP**: `pieces/piece-A1.stl …`, `template.svg` (1:1, with a 100 mm scale bar), `assembly-guide.html` and `settings.json`.
+5. **Neon strip**: pick a **strip size** preset (3 × 8 up to 12 × 25 mm; it sets the strip width and a wall height 2 mm under the strip height) or enter your own. **Download fit test piece** gives a 60 mm U of channel with one bend at the min bend radius: print it first to check the strip presses in snugly.
+6. **Printed body**: wall thickness and height, base thickness, bridges between loose letters, dovetail connectors and their clearance, plus:
+   - **Cable hole** through the channel floor at the start of each run, for the feed wire (lower end of an open run, bottom of a loop, kept clear of cuts).
+   - **Screw holes for mounting**: in solid back plate where there is room (inside letters, on bridges), otherwise on a small lug on the outer edge of the piece. Wide pieces get two.
+7. **Layers**: pieces, walls, bridges, neon path, cuts and tight-bend markers. **Glow** shows a lit-up preview in the chosen colour.
+8. **Download ZIP**: `pieces/piece-A1.stl …`, `pieces/fit-test.stl`, `template.svg` (1:1, with a 100 mm scale bar), `assembly-guide.html` and `settings.json`.
 
 Piece names are a column letter (from the left) plus a row number (from the top). `A1` is the top-left piece.
 
@@ -44,7 +47,7 @@ The stats bar shows lettering size, printed size, piece count, metres of neon (a
 
 ## Checked so far
 
-- Unit tests cover single-line centrelines (bars, rings, crosses, T junctions, stroked lines, dropped dots), offsets, channel width, neon length (merge and stacked), tight-bend detection, cut placement, row splitting, connectors, SVG path parsing (arcs, relative commands), word/line grouping, and watertight meshes for all three bundled fonts.
+- Unit tests cover the fit-test piece for every strip preset, cable holes (one per run, in the channel, clear of cuts), screw holes and lugs, single-line centrelines (bars, rings, crosses, T junctions, stroked lines, dropped dots), offsets, channel width, neon length (merge and stacked), tight-bend detection, cut placement, row splitting, connectors, SVG path parsing (arcs, relative commands), word/line grouping, and watertight meshes for all three bundled fonts.
 - A 700 mm "Neon Bar" export sliced without errors in the Bambu Studio CLI with the P2S 0.4 mm / 0.20 mm Standard / PLA Basic profiles.
 
 ## Fonts

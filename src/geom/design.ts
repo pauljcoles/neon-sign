@@ -3,6 +3,7 @@ import {
   type BBox, type Paths, type Polyline, type Pt, type Ring, bbox, clipLines, difference, pointInPaths, polylineLength,
   simplify, simplifyChain, toPolys, totalArea, tube, union,
 } from './clip';
+import { cableHolePoints, drillPiece, type Mount, mountPoints } from './fittings';
 import { centrelines } from './skeleton';
 import type { Source } from './source';
 import { type Piece, type SplitResult, splitBody } from './split';
@@ -28,6 +29,12 @@ export interface Params {
   bedSize: number;
   connectors: boolean;
   connectorClearance: number;
+  /** A hole through the channel floor at the start of each run, for the feed wire. */
+  cableHoles: boolean;
+  cableHoleDiameter: number;
+  /** Screw holes in each piece (or a small lug where there is no room). */
+  mountHoles: boolean;
+  screwHoleDiameter: number;
 }
 
 export const defaultParams: Params = {
@@ -46,6 +53,10 @@ export const defaultParams: Params = {
   bedSize: 256,
   connectors: true,
   connectorClearance: 0.2,
+  cableHoles: true,
+  cableHoleDiameter: 5,
+  mountHoles: true,
+  screwHoleDiameter: 4.5,
 };
 
 /** Per-item nudge in layout units (same units as the source outlines). */
@@ -83,6 +94,8 @@ export interface Design {
   bridges: Paths;
   base: Paths;
   tight: Pt[];
+  cableHoles: Pt[];
+  mounts: Mount[];
   split: SplitResult;
   pieces: Piece[];
   bounds: BBox;
@@ -135,6 +148,22 @@ export function buildDesign(src: Source, params: Params, nudges: Record<number, 
     tabDepth: 6,
   });
 
+  // Holes and lugs go on after splitting, so they can avoid the cuts and belong to exactly one piece.
+  const cableR = Math.min(params.cableHoleDiameter / 2, half - 0.4);
+  const cableHoles = params.cableHoles && cableR > 0.5 ? cableHolePoints(neon, cableR, { x: split.xCuts, y: split.yCuts }) : [];
+  const holeR = params.screwHoleDiameter / 2, lugR = holeR + 4;
+  const mounts: Mount[] = [];
+  let pieces = split.pieces;
+  if (pieces.length && (cableHoles.length || params.mountHoles)) {
+    pieces = pieces.map((pc, i) => {
+      const others = params.mountHoles ? union(pieces.flatMap((o, j) => (j === i ? [] : [o.base.outer]))) : [];
+      const m = params.mountHoles ? mountPoints(pc, band, others, holeR, lugR, { x: split.xCuts, y: split.yCuts }) : [];
+      mounts.push(...m);
+      const mine = cableHoles.filter(([x, y]) => x > pc.bbox.minX - cableR && x < pc.bbox.maxX + cableR && y > pc.bbox.minY - cableR && y < pc.bbox.maxY + cableR);
+      return drillPiece(pc, m, holeR, lugR, mine, cableR);
+    });
+  }
+
   const warnings: string[] = [];
   const islands = toPolys(base).length;
   if (islands > 1) warnings.push(`${islands} separate parts are not joined to each other${params.bridges ? '' : ' (bridges are off)'} — mount them on a backing board.`);
@@ -148,9 +177,15 @@ export function buildDesign(src: Source, params: Params, nudges: Record<number, 
   warnings.push(...split.warnings);
 
   const fb = bbox(fill);
-  const bounds = bbox(base);
+  const bounds = pieces.length ? bbox(pieces.map((p) => p.base.outer)) : bbox(base);
+  const lugs = mounts.filter((m) => m.lug).length;
+  if (lugs) warnings.push(`${lugs} mounting hole${lugs > 1 ? 's are' : ' is'} on a small lug sticking out from the edge of a piece, where there is no solid back plate to put a hole in. Turn mounting holes off and use a backing board if you would rather not see them.`);
+  for (const p of pieces) {
+    const w = p.bbox.maxX - p.bbox.minX, h = p.bbox.maxY - p.bbox.minY;
+    if (w > params.bedSize || h > params.bedSize) warnings.push(`Piece ${p.id} is ${w.toFixed(0)} × ${h.toFixed(0)} mm with its lugs, larger than the ${params.bedSize} mm bed.`);
+  }
   let volume = 0;
-  for (const p of split.pieces) {
+  for (const p of pieces) {
     volume += totalArea([p.base.outer, ...p.base.holes]) * params.baseThickness;
     for (const wp of p.walls) volume += totalArea([wp.outer, ...wp.holes]) * params.wallHeight;
   }
@@ -159,14 +194,14 @@ export function buildDesign(src: Source, params: Params, nudges: Record<number, 
     letterHeight: fb.maxY - fb.minY,
     printedWidth: bounds.maxX - bounds.minX,
     printedHeight: bounds.maxY - bounds.minY,
-    pieces: split.pieces.length,
+    pieces: pieces.length,
     neonMetres: neon.reduce((s, l) => s + polylineLength(l), 0) / 1000,
     neonRuns: neon.length,
     tightSpots: tight.length,
     // PLA at roughly 1.24 g/cm³, solid. Real prints with infill come in a bit lighter.
     filamentGrams: (volume / 1000) * 1.24,
   };
-  return { params, scale, items, fill, neon, channel, walls, bridges, base, tight, split, pieces: split.pieces, bounds, warnings, stats };
+  return { params, scale, items, fill, neon, channel, walls, bridges, base, tight, cableHoles, mounts, split, pieces, bounds, warnings, stats };
 }
 
 /**

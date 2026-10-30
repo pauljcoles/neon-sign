@@ -4,6 +4,8 @@ import { type Design, defaultParams, type NeonStyle, type Nudge, type OverlapMod
 import type { BuildRequest } from '../geom/worker';
 import { type Source, svgSource, textSource } from '../geom/source';
 import { buildZip, templateSvg } from '../export/files';
+import { pieceMesh, toBinaryStl } from '../export/mesh';
+import { fitTestPiece, presetWallHeight, STRIP_PRESETS } from '../geom/fittings';
 import { type Layer, type Mode, Viewer } from './viewer';
 
 const BUNDLED: Record<string, string> = {
@@ -181,7 +183,7 @@ function fillFontSelect() {
 
 const numericParams: (keyof Params)[] = [
   'width', 'maxPiece', 'bedSize', 'stripWidth', 'channelClearance', 'minBendRadius', 'wallThickness', 'wallHeight',
-  'baseThickness', 'bridgeWidth', 'connectorClearance',
+  'baseThickness', 'bridgeWidth', 'connectorClearance', 'cableHoleDiameter', 'screwHoleDiameter',
 ];
 
 function bindControls() {
@@ -240,6 +242,30 @@ function bindControls() {
 
   $('reset-nudges').addEventListener('click', () => { state.nudges = {}; svgNudges = {}; schedule(0); });
 
+  const preset = $<HTMLSelectElement>('stripPreset');
+  preset.innerHTML = '<option value="">Custom</option>' + STRIP_PRESETS.map((p, i) => `<option value="${i}">${p.name}</option>`).join('');
+  const syncPreset = () => {
+    const i = STRIP_PRESETS.findIndex((p) => p.width === state.params.stripWidth && presetWallHeight(p.height) === state.params.wallHeight);
+    preset.value = i < 0 ? '' : String(i);
+  };
+  syncPreset();
+  preset.addEventListener('change', () => {
+    const p = STRIP_PRESETS[Number(preset.value)];
+    if (!preset.value || !p) return;
+    state.params.stripWidth = p.width;
+    state.params.wallHeight = presetWallHeight(p.height);
+    $<HTMLInputElement>('stripWidth').value = String(p.width);
+    $<HTMLInputElement>('wallHeight').value = String(state.params.wallHeight);
+    schedule(0);
+  });
+  // After the generic number handlers below have stored the new value.
+  for (const id of ['stripWidth', 'wallHeight']) $(id).addEventListener('input', () => setTimeout(syncPreset));
+
+  $('download-fit').addEventListener('click', () => {
+    const piece = fitTestPiece(state.params);
+    downloadBlob(new Blob([toBinaryStl(pieceMesh(piece, state.params), 'fit test')], { type: 'model/stl' }), `fit-test-${state.params.stripWidth}mm.stl`);
+  });
+
   for (const key of numericParams) {
     const input = $<HTMLInputElement>(key);
     input.value = String(state.params[key]);
@@ -250,7 +276,7 @@ function bindControls() {
       schedule(250);
     });
   }
-  for (const key of ['bridges', 'connectors'] as const) {
+  for (const key of ['bridges', 'connectors', 'cableHoles', 'mountHoles'] as const) {
     const input = $<HTMLInputElement>(key);
     input.checked = state.params[key];
     input.addEventListener('change', () => { state.params[key] = input.checked; schedule(0); });

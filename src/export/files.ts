@@ -2,6 +2,7 @@
 import JSZip from 'jszip';
 import type { Paths, Polyline, Ring } from '../geom/clip';
 import type { Design } from '../geom/design';
+import { fitTestPiece } from '../geom/fittings';
 import { pieceMesh, toBinaryStl } from './mesh';
 
 export const pieceHue = (i: number) => (i * 137.508) % 360;
@@ -62,14 +63,15 @@ ${warn}
 <h2>Print</h2>
 <p>Print each STL flat side down. Settings that work well: 0.2 mm layers, 3 walls, 15% infill, no supports.
 Channel width ${(p.stripWidth + p.channelClearance).toFixed(1)} mm, walls ${p.wallThickness} mm thick and ${p.wallHeight} mm tall on a ${p.baseThickness} mm base.</p>
+<p>Print <b>pieces/fit-test.stl</b> first (about 10 minutes) and press a length of strip into it. It should go in with a firm push and stay put. If it is loose, lower the channel clearance; if it will not go in, raise it.</p>
 <table><tr><th>Piece</th><th>Size</th><th>File</th></tr>${rows}</table>
 <h2>Assemble</h2>
 <ol>
 <li>Lay the pieces out on the printed template (template.svg, print at 100% — the scale bar should measure 100 mm). Letters are columns A, B, C… from the left and rows 1, 2… from the top.</li>
 <li>Slide the dovetail connectors together from above. They are sized with ${p.connectorClearance} mm clearance; sand lightly if tight.</li>
 <li>Glue each joint (CA glue or a 2-part epoxy). Joints listed above as having no connector need extra glue or a strip glued across the back.</li>
-<li>Drill or melt a small hole for the feed wire at the start of each run, then press the neon strip into the channel. Neon strip bends best with a radius of ${p.minBendRadius} mm or more; at the red-marked spots, warm the strip gently or cut and rejoin it.</li>
-<li>Mount on a backing board or hang with wire through the bridges.</li>
+<li>${d.cableHoles.length ? 'Feed the wire of each strip through the hole in the channel floor at the start of its run' : 'Drill a small hole for the feed wire at the start of each run'}, then press the neon strip into the channel. Neon strip bends best with a radius of ${p.minBendRadius} mm or more; at the red-marked spots, warm the strip gently or cut and rejoin it.</li>
+<li>${d.mounts.length ? `Screw the sign to the wall or a backing board through the ${d.mounts.length} mounting holes (${p.screwHoleDiameter} mm, for ${Math.max(2, Math.floor(p.screwHoleDiameter - 0.5))} mm screws).` : 'Mount on a backing board or hang with wire through the bridges.'}</li>
 </ol>
 <h2>Neon runs</h2><ul>${runs}</ul>
 </body></html>`;
@@ -79,6 +81,7 @@ export async function buildZip(d: Design, title: string, settings: unknown): Pro
   const zip = new JSZip();
   const folder = zip.folder('pieces')!;
   for (const p of d.pieces) folder.file(`piece-${p.id}.stl`, toBinaryStl(pieceMesh(p, d.params), `piece ${p.id}`));
+  folder.file('fit-test.stl', toBinaryStl(pieceMesh(fitTestPiece(d.params), d.params), 'fit test'));
   zip.file('template.svg', templateSvg(d));
   zip.file('assembly-guide.html', assemblyGuide(d, title));
   zip.file('settings.json', JSON.stringify(settings, null, 2));

@@ -74,6 +74,17 @@ describe('single-line designs', () => {
     expect(d.warnings.filter((w) => w.includes('too small'))).toHaveLength(0);
   });
 
+  it('gives narrow single-line seams a smaller connector instead of none', () => {
+    // A wavy 600 mm line: the body is about 11 mm wide wherever it is cut.
+    const pts = Array.from({ length: 121 }, (_, i): [number, number] => [i * 5, 30 * Math.sin(i / 8)]);
+    const src = { items: [{ label: 'wave', rings: [], fill: 'nonzero' as const, word: 0, line: 0, strokeWidth: 1, lines: [{ pts, closed: false }] }] };
+    const d = buildDesign(src, { ...defaultParams, width: 600, neonStyle: 'single' })!;
+    expect(d.split.joints.length).toBeGreaterThanOrEqual(2);
+    for (const j of d.split.joints) expect(j.tabs).toBeGreaterThan(0);
+    expect(d.split.joints.some((j) => j.small > 0)).toBe(true);
+    expect(d.warnings.some((w) => w.includes('got no connector'))).toBe(false);
+  });
+
   it('warns when a dot is too small for a line', () => {
     const d = buildDesign({ items: [{ label: 'i', rings: [rect(0, 0, 8, 80), rect(0, -20, 8, -12)], fill: 'nonzero', word: 0, line: 0 }] },
       { ...defaultParams, width: 8, neonStyle: 'single' })!;

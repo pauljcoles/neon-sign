@@ -84,6 +84,34 @@ export function splitStrokes(rings: Ring[]): { rings: Ring[]; lines: Polyline[] 
   return out;
 }
 
+/**
+ * Carries letter and word moves over to a new layout of the same text (after a font change). Moves are kept per
+ * item index, and a new font can have a different number of glyphs in a word (ligatures, missing glyphs), so
+ * they are matched word by word: letter by letter where the counts agree, otherwise the word's average move.
+ */
+export function remapNudges<N extends { dx: number; dy: number }>(from: Source, to: Source, nudges: Record<number, N>): Record<number, { dx: number; dy: number }> {
+  const byWord = (s: Source) => {
+    const m = new Map<number, number[]>();
+    s.items.forEach((it, i) => { if (!m.has(it.word)) m.set(it.word, []); m.get(it.word)!.push(i); });
+    return m;
+  };
+  const oldWords = byWord(from), newWords = byWord(to);
+  const out: Record<number, { dx: number; dy: number }> = {};
+  for (const [w, olds] of oldWords) {
+    const news = newWords.get(w);
+    if (!news) continue;
+    const moves = olds.map((i) => nudges[i] ?? { dx: 0, dy: 0 });
+    if (moves.every((m) => !m.dx && !m.dy)) continue;
+    if (olds.length === news.length) {
+      news.forEach((i, k) => { if (moves[k].dx || moves[k].dy) out[i] = { dx: moves[k].dx, dy: moves[k].dy }; });
+    } else {
+      const avg = { dx: moves.reduce((t, m) => t + m.dx, 0) / moves.length, dy: moves.reduce((t, m) => t + m.dy, 0) / moves.length };
+      for (const i of news) out[i] = avg;
+    }
+  }
+  return out;
+}
+
 /** Converts path commands to closed polylines. `seg` is the target segment length in the commands' units. */
 export function flattenCommands(cmds: PathCommand[], seg: number): Ring[] {
   return flattenSubpaths(cmds, seg).filter((l) => l.pts.length >= 3).map((l) => l.pts);

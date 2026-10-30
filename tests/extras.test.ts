@@ -3,7 +3,7 @@ import { parse } from 'opentype.js';
 import { describe, expect, it } from 'vitest';
 import { type Pt, pointInPaths, polyPaths, rect, totalArea } from '../src/geom/clip';
 import { buildDesign, defaultParams, type Params } from '../src/geom/design';
-import { splitStrokes, textSource } from '../src/geom/source';
+import { remapNudges, splitStrokes, textSource } from '../src/geom/source';
 import { assemblyGuide, templateSvg } from '../src/export/files';
 import { pieceMesh, prism, type Tris } from '../src/export/mesh';
 
@@ -100,5 +100,31 @@ describe('single-line fonts', () => {
     const len = lines[0].pts.slice(1).reduce((t, p, i) => t + Math.hypot(p[0] - lines[0].pts[i][0], p[1] - lines[0].pts[i][1]), 0);
     const want = there.slice(1).reduce((t, p, i) => t + Math.hypot(p[0] - there[i][0], p[1] - there[i][1]), 0);
     expect(len).toBeCloseTo(want, 3);
+  });
+});
+
+describe('font change', () => {
+  it('keeps moved words and letters on the same letters in the new font', () => {
+    const opts = { letterSpacing: 0, lineHeight: 1.1, kerning: true };
+    const a = textSource(font('Pacifico-Regular.ttf'), 'Good Vibes\nOnly', opts);
+    const b = textSource(font('Righteous-Regular.ttf'), 'Good Vibes\nOnly', opts);
+    const vibes = a.items.flatMap((it, i) => (it.word === 2 ? [i] : []));
+    const nudges: Record<number, { dx: number; dy: number }> = {};
+    for (const i of vibes) nudges[i] = { dx: 30, dy: -10 };
+    nudges[0] = { dx: 0, dy: 5 }; // the G of Good on its own
+    const out = remapNudges(a, b, nudges);
+    b.items.forEach((it, i) => {
+      if (it.word === 2) expect(out[i]).toEqual({ dx: 30, dy: -10 });
+      else if (i === 0) expect(out[i]).toEqual({ dx: 0, dy: 5 });
+      else expect(out[i]).toBeUndefined();
+    });
+  });
+
+  it('falls back to moving the whole word when the glyph count differs', () => {
+    const item = (word: number) => ({ label: 'x', rings: [rect(0, 0, 1, 1)], fill: 'nonzero' as const, word, line: 0 });
+    const from = { items: [item(1), item(1), item(2)] };
+    const to = { items: [item(1), item(2), item(2)] };
+    const out = remapNudges(from, to, { 0: { dx: 10, dy: 0 }, 1: { dx: 20, dy: 0 } });
+    expect(out).toEqual({ 0: { dx: 15, dy: 0 } });
   });
 });

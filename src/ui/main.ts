@@ -2,7 +2,7 @@ import { type Font, parse } from 'opentype.js';
 import '../style.css';
 import { type Design, defaultParams, type NeonStyle, type Nudge, type OverlapMode, type Params } from '../geom/design';
 import type { BuildRequest } from '../geom/worker';
-import { type Source, svgSource, textSource } from '../geom/source';
+import { remapNudges, type Source, svgSource, textSource } from '../geom/source';
 import { buildSheet, buildSheetHtml, defaultStrip, type StripSpec } from '../export/buildsheet';
 import { buildZip, templateSvg } from '../export/files';
 import { pieceMesh, toBinaryStl } from '../export/mesh';
@@ -135,12 +135,25 @@ worker.onmessage = (e: MessageEvent<{ id: number; design?: Design | null; ms?: n
   if (queued) { const q = queued; queued = null; submit(q); } else $('busy').hidden = true;
 };
 
+/** The layout from before a font change, so moves can be carried over to the new font. */
+let remapFrom: Source | null = null;
 const activeNudges = () => (state.source === 'text' ? state.nudges : svgNudges);
 let svgNudges: Record<number, Nudge> = {};
 
+/**
+ * Whether the next build should fit the view to the sign. Only new content does that (first load, new text, a new
+ * SVG, switching between text and SVG); setting changes keep the user's zoom and pan.
+ */
+let fitNext = true;
+
 async function recompute(keepView = false) {
+  keepView = keepView || !fitNext;
+  fitNext = false;
   try {
     source = await currentSource();
+    // Same text, new font: keep the moves, matched letter by letter.
+    if (remapFrom && source && state.source === 'text') state.nudges = remapNudges(remapFrom, source, state.nudges);
+    remapFrom = null;
   } catch (err) {
     renderWarnings([`Could not lay out the text: ${(err as Error).message}`]);
     return;
@@ -249,10 +262,10 @@ const numericParams: (keyof Params)[] = [
 function bindControls() {
   const text = $<HTMLTextAreaElement>('text');
   text.value = state.text;
-  text.addEventListener('input', () => { state.text = text.value; state.nudges = {}; clearSelection(true); schedule(); });
+  text.addEventListener('input', () => { state.text = text.value; state.nudges = {}; clearSelection(true); fitNext = true; schedule(); });
 
   const sel = $<HTMLSelectElement>('font');
-  sel.addEventListener('change', () => { state.font = sel.value; state.nudges = {}; schedule(0); });
+  sel.addEventListener('change', () => { state.font = sel.value; remapFrom = source; schedule(0); });
 
   $<HTMLInputElement>('font-file').addEventListener('change', async (e) => {
     const file = (e.target as HTMLInputElement).files?.[0];
@@ -262,6 +275,7 @@ function bindControls() {
       const name = file.name.replace(/\.[^.]+$/, '');
       fonts.set(name, font);
       state.font = name;
+      remapFrom = source;
       fillFontSelect();
       schedule(0);
     } catch (err) {
@@ -411,6 +425,7 @@ function bindControls() {
     $('text-controls').hidden = state.source !== 'text';
     $('svg-controls').hidden = state.source !== 'svg';
     clearSelection(false);
+    fitNext = true;
     schedule(0);
   }));
 
@@ -421,6 +436,7 @@ function bindControls() {
       svg = { name: file.name, source: svgSource(await file.text()) };
       svgNudges = {};
       clearSelection(true);
+      fitNext = true;
       $('svg-name').textContent = `${file.name}: ${svg.source.items.length} shape${svg.source.items.length === 1 ? '' : 's'}.`;
       schedule(0);
     } catch (err) {

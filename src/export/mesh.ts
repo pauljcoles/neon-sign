@@ -1,6 +1,6 @@
 // Extrudes 2D polygons into closed triangle meshes and writes binary STL.
 import earcut from 'earcut';
-import { type Poly, type Ring, area } from '../geom/clip';
+import { type Poly, type Ring, area, difference, intersect, polyPaths, toPolys } from '../geom/clip';
 import type { Params } from '../geom/design';
 import type { Piece } from '../geom/split';
 
@@ -62,8 +62,17 @@ export function pieceMesh(piece: Piece, params: Params): Tris {
     holes: p.holes.map((h) => h.map(([x, y]) => [x - cx, y - cy])),
   });
   const tris: Tris = [];
-  prism(move(piece.base), 0, params.baseThickness, tris);
+  const depth = Math.min(params.engraveDepth, params.baseThickness - 0.6);
+  if (piece.label?.length && depth > 0) {
+    // The plate around the engraving runs full height; under the engraving it starts `depth` up.
+    const base = polyPaths(piece.base);
+    for (const p of toPolys(difference(base, piece.label))) prism(move(p), 0, params.baseThickness, tris);
+    for (const p of toPolys(intersect(base, piece.label))) prism(move(p), depth, params.baseThickness, tris);
+  } else {
+    prism(move(piece.base), 0, params.baseThickness, tris);
+  }
   for (const w of piece.walls) prism(move(w), 0, params.baseThickness + params.wallHeight, tris);
+  for (const r of piece.raised ?? []) prism(move(r), 0, params.bridgeHeight, tris);
   return tris;
 }
 

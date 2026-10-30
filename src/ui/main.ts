@@ -8,6 +8,18 @@ import { pieceMesh, toBinaryStl } from '../export/mesh';
 import { fitTestPiece, presetWallHeight, STRIP_PRESETS } from '../geom/fittings';
 import { type Layer, type Mode, Viewer } from './viewer';
 
+/** Build plate sizes in mm (x × y). */
+const PRINTERS: { name: string; bed: [number, number] }[] = [
+  { name: 'Bambu Lab P2S / P1S / X1C', bed: [256, 256] },
+  { name: 'Bambu Lab A1', bed: [256, 256] },
+  { name: 'Bambu Lab A1 mini', bed: [180, 180] },
+  { name: 'Prusa MK4S', bed: [250, 210] },
+  { name: 'Prusa CORE One', bed: [250, 220] },
+  { name: 'Prusa MINI+', bed: [180, 180] },
+  { name: 'Creality Ender-3 V3', bed: [220, 220] },
+  { name: 'Creality K1 Max', bed: [300, 300] },
+];
+
 const BUNDLED: Record<string, string> = {
   Pacifico: 'Pacifico-Regular.ttf',
   Lobster: 'Lobster-Regular.ttf',
@@ -22,6 +34,8 @@ interface State {
   lineHeight: number;
   kerning: boolean;
   glowColor: string;
+  /** Space kept free on each side of the bed; the max piece size is the bed minus twice this. */
+  margin: number;
   params: Params;
   nudges: Record<number, Nudge>;
 }
@@ -32,7 +46,7 @@ const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as 
 function loadState(): State {
   const base: State = {
     source: 'text', text: 'Glow', font: 'Pacifico', letterSpacing: 0, lineHeight: 1.1, kerning: true,
-    glowColor: '#ff3d9a', params: { ...defaultParams }, nudges: {},
+    glowColor: '#ff3d9a', margin: 8, params: { ...defaultParams }, nudges: {},
   };
   try {
     const saved = JSON.parse(localStorage.getItem(STORE_KEY) ?? 'null');
@@ -182,8 +196,9 @@ function fillFontSelect() {
 }
 
 const numericParams: (keyof Params)[] = [
-  'width', 'maxPiece', 'bedSize', 'stripWidth', 'channelClearance', 'minBendRadius', 'wallThickness', 'wallHeight',
-  'baseThickness', 'bridgeWidth', 'connectorClearance', 'cableHoleDiameter', 'screwHoleDiameter',
+  'width', 'height', 'bedSize', 'stripWidth', 'channelClearance', 'minBendRadius', 'wallThickness', 'wallHeight',
+  'baseThickness', 'bridgeWidth', 'bridgeHeight', 'connectorClearance', 'cableHoleDiameter', 'screwHoleDiameter',
+  'engraveDepth',
 ];
 
 function bindControls() {
@@ -261,6 +276,49 @@ function bindControls() {
   // After the generic number handlers below have stored the new value.
   for (const id of ['stripWidth', 'wallHeight']) $(id).addEventListener('input', () => setTimeout(syncPreset));
 
+  const choice = <K extends 'sizeBy' | 'cutMode' | 'bodyStyle'>(key: K, after?: () => void) => {
+    const el = $<HTMLSelectElement>(key);
+    el.value = state.params[key];
+    el.addEventListener('change', () => { state.params[key] = el.value as Params[K]; after?.(); schedule(0); });
+  };
+  const showSize = () => {
+    $('width-field').hidden = state.params.sizeBy !== 'width';
+    $('height-field').hidden = state.params.sizeBy !== 'height';
+  };
+  choice('sizeBy', showSize);
+  showSize();
+  choice('cutMode');
+  choice('bodyStyle');
+
+  // Printer presets set the bed; the margin turns that into the max piece size.
+  const printer = $<HTMLSelectElement>('printer');
+  printer.innerHTML = '<option value="">Custom</option>' + PRINTERS.map((p, i) => `<option value="${i}">${p.name} (${p.bed[0]} × ${p.bed[1]})</option>`).join('');
+  const bed = $<HTMLInputElement>('bedSize'), margin = $<HTMLInputElement>('margin');
+  margin.value = String(state.margin);
+  const applyBed = () => {
+    state.params.maxPiece = Math.max(40, state.params.bedSize - 2 * state.margin);
+    const i = PRINTERS.findIndex((p) => Math.min(...p.bed) === state.params.bedSize);
+    if (printer.value === '' || Math.min(...(PRINTERS[Number(printer.value)]?.bed ?? [0])) !== state.params.bedSize) printer.value = i < 0 ? '' : String(i);
+    $('maxPiece-note').textContent = `Pieces up to ${state.params.maxPiece} × ${state.params.maxPiece} mm. Rectangular beds use the shorter side.`;
+  };
+  applyBed();
+  printer.addEventListener('change', () => {
+    const p = PRINTERS[Number(printer.value)];
+    if (!printer.value || !p) return;
+    state.params.bedSize = Math.min(...p.bed);
+    bed.value = String(state.params.bedSize);
+    applyBed();
+    schedule(0);
+  });
+  bed.addEventListener('input', () => setTimeout(() => { applyBed(); schedule(250); }));
+  margin.addEventListener('input', () => {
+    const v = Number(margin.value);
+    if (!Number.isFinite(v) || v < 0) return;
+    state.margin = v;
+    applyBed();
+    schedule(250);
+  });
+
   $('download-fit').addEventListener('click', () => {
     const piece = fitTestPiece(state.params);
     downloadBlob(new Blob([toBinaryStl(pieceMesh(piece, state.params), 'fit test')], { type: 'model/stl' }), `fit-test-${state.params.stripWidth}mm.stl`);
@@ -276,7 +334,7 @@ function bindControls() {
       schedule(250);
     });
   }
-  for (const key of ['bridges', 'connectors', 'cableHoles', 'mountHoles'] as const) {
+  for (const key of ['bridges', 'connectors', 'cableHoles', 'mountHoles', 'labels'] as const) {
     const input = $<HTMLInputElement>(key);
     input.checked = state.params[key];
     input.addEventListener('change', () => { state.params[key] = input.checked; schedule(0); });
@@ -321,12 +379,20 @@ function bindControls() {
   $('fit').addEventListener('click', () => viewer.fit());
 
   viewer.groupOf = groupOf;
+  // While dragging, rebuild without the (slower) split on every move; once the pointer rests for a moment,
+  // rebuild with the cuts too, so pieces and connectors follow the drag without waiting for the drop.
+  let restTimer = 0;
   viewer.onDragMove = (items, dx, dy) => {
     if (!design || !source) return;
-    // Live rebuild without splitting; the overlay covers whatever the worker has not caught up with yet.
-    submit({ src: source, params: state.params, nudges: nudgedBy(items, dx, dy), split: false, liveDelta: { dx, dy } });
+    const src = source;
+    const job = { src, params: state.params, nudges: nudgedBy(items, dx, dy), liveDelta: { dx, dy } };
+    // The overlay covers whatever the worker has not caught up with yet.
+    submit({ ...job, split: false });
+    window.clearTimeout(restTimer);
+    restTimer = window.setTimeout(() => submit({ ...job, split: true, keepView: true }), 300);
   };
   viewer.onNudge = (items, dx, dy) => {
+    window.clearTimeout(restTimer);
     if (!design) return;
     const n = nudgedBy(items, dx, dy);
     if (state.source === 'text') state.nudges = n; else svgNudges = n;

@@ -308,6 +308,21 @@ export class Viewer {
         ctx.fillText(p.id, x, y);
       }
     }
+    if (this.layers.has('neon') && d.runs.length > 1) {
+      // Run numbers at each start, in the order the assembly guide uses.
+      ctx.font = '600 11px system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      d.runs.forEach((r, i) => {
+        const x = this.ox + r.start[0] * s - r.dir[0] * 14, y = this.oy - r.start[1] * s + r.dir[1] * 14;
+        ctx.fillStyle = '#e0218a';
+        ctx.beginPath();
+        ctx.arc(x, y, 8, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#fff';
+        ctx.fillText(String(i + 1), x, y + 0.5);
+      });
+    }
     this.scaleBar();
   }
 

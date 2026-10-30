@@ -1,9 +1,9 @@
 // The whole pipeline: source outlines -> neon path -> printed body -> pieces.
 import {
-  type BBox, type Paths, type Polyline, type Pt, type Ring, bbox, clipLines, difference, pointInPaths, polylineLength,
-  simplify, simplifyChain, toPolys, totalArea, tube, union,
+  type BBox, type Paths, type Polyline, type Pt, type Ring, bbox, clipLines, difference, intersect, pointInPaths,
+  polylineLength, polyPaths, simplify, simplifyChain, toPolys, totalArea, tube, union,
 } from './clip';
-import { cableHolePoints, drillPiece, type Mount, mountPoints } from './fittings';
+import { cableHolePoints, drillPiece, type Mount, mountPoints, orderRuns, placeLabel, type RunInfo, runInfo } from './fittings';
 import { centrelines } from './skeleton';
 import type { Source } from './source';
 import { type Piece, type SplitResult, splitBody } from './split';
@@ -11,10 +11,20 @@ import { type Piece, type SplitResult, splitBody } from './split';
 export type OverlapMode = 'merge' | 'later-on-top' | 'earlier-on-top';
 /** `outline` runs the neon around each letter; `single` runs one line down the middle of each stroke. */
 export type NeonStyle = 'outline' | 'single';
+/**
+ * `plate`: channel walls on a back plate the shape of the letters. `solid`: the letters are solid to the top of
+ * the walls with the channel sunk into them. `channel`: just the channel and its walls, no plate between.
+ */
+export type BodyStyle = 'plate' | 'solid' | 'channel';
 
 export interface Params {
-  /** Overall width of the lettering in mm. */
+  /** Overall width of the lettering in mm (when sizing by width). */
   width: number;
+  /** Overall height of the lettering in mm (when sizing by height). */
+  height: number;
+  sizeBy: 'width' | 'height';
+  /** `smart` puts cuts where they cross the least material; `grid` cuts into equal strips. */
+  cutMode: 'smart' | 'grid';
   neonStyle: NeonStyle;
   overlap: OverlapMode;
   stripWidth: number;
@@ -22,9 +32,12 @@ export interface Params {
   wallThickness: number;
   wallHeight: number;
   baseThickness: number;
+  bodyStyle: BodyStyle;
   minBendRadius: number;
   bridges: boolean;
   bridgeWidth: number;
+  /** Total height of the bridges; at or below the base thickness they are flush with the plate. */
+  bridgeHeight: number;
   maxPiece: number;
   bedSize: number;
   connectors: boolean;
@@ -35,10 +48,16 @@ export interface Params {
   /** Screw holes in each piece (or a small lug where there is no room). */
   mountHoles: boolean;
   screwHoleDiameter: number;
+  /** Engrave each piece's ID into its underside. */
+  labels: boolean;
+  engraveDepth: number;
 }
 
 export const defaultParams: Params = {
   width: 500,
+  height: 150,
+  sizeBy: 'width',
+  cutMode: 'smart',
   neonStyle: 'outline',
   overlap: 'merge',
   stripWidth: 6,
@@ -46,9 +65,11 @@ export const defaultParams: Params = {
   wallThickness: 1.6,
   wallHeight: 10,
   baseThickness: 2.4,
+  bodyStyle: 'plate',
   minBendRadius: 10,
   bridges: true,
   bridgeWidth: 8,
+  bridgeHeight: 2.4,
   maxPiece: 240,
   bedSize: 256,
   connectors: true,
@@ -57,6 +78,8 @@ export const defaultParams: Params = {
   cableHoleDiameter: 5,
   mountHoles: true,
   screwHoleDiameter: 4.5,
+  labels: true,
+  engraveDepth: 0.6,
 };
 
 /** Per-item nudge in layout units (same units as the source outlines). */
@@ -66,8 +89,10 @@ export interface DesignItem {
   label: string;
   /** The item's area: the letter shape, or a stroked SVG line widened to its stroke width. Used for dragging. */
   fill: Paths;
-  /** Centre lines that came straight from stroked SVG paths. */
+  /** Centre lines that came straight from stroked SVG paths or a single-line font. */
   lines: Polyline[];
+  /** The filled part only (without the widened lines). */
+  shape: Paths;
 }
 
 export interface Stats {
@@ -96,6 +121,8 @@ export interface Design {
   tight: Pt[];
   cableHoles: Pt[];
   mounts: Mount[];
+  /** Per neon run (same order as `neon`): cut length, start and the pieces it crosses. */
+  runs: RunInfo[];
   split: SplitResult;
   pieces: Piece[];
   bounds: BBox;
@@ -112,9 +139,10 @@ const NO_SPLIT: SplitResult = { xCuts: [], yCuts: [], tabs: [], joints: [], piec
 export function buildDesign(src: Source, params: Params, nudges: Record<number, Nudge> = {}, opts: { split?: boolean } = {}): Design | null {
   if (!src.items.length) return null;
   const raw = bbox(src.items.flatMap((i) => [...i.rings, ...(i.lines ?? []).map((l) => l.pts)]));
-  const w = raw.maxX - raw.minX;
-  if (!(w > 0)) return null;
-  const scale = params.width / w;
+  const w = raw.maxX - raw.minX, h = raw.maxY - raw.minY;
+  const byHeight = params.sizeBy === 'height' && h > 0;
+  if (!(byHeight || w > 0)) return null;
+  const scale = byHeight ? params.height / h : params.width / w;
   const items: DesignItem[] = src.items.map((it, idx) => {
     const n = nudges[idx] ?? { dx: 0, dy: 0 };
     const map = (r: Pt[]) => r.map(([x, y]) => [(x + n.dx - raw.minX) * scale, (raw.maxY - (y + n.dy)) * scale] as Pt);
@@ -123,24 +151,25 @@ export function buildDesign(src: Source, params: Params, nudges: Record<number, 
     // Flattened curves are denser than needed; 0.05 mm deviation is invisible in print and keeps clipping fast.
     const shape = rings.length ? simplify(union(rings, [], it.fill), 0.05) : [];
     const stroke = lines.length ? tube(lines, Math.max(0.5, ((it.strokeWidth ?? 1) * scale) / 2)) : [];
-    return { label: it.label, fill: stroke.length ? union(shape, stroke) : shape, lines };
+    return { label: it.label, fill: stroke.length ? union(shape, stroke) : shape, lines, shape };
   });
   const fill = union(items.flatMap((i) => i.fill));
   const single = params.neonStyle === 'single';
-  const neon = single ? singleLinePaths(items, params.overlap) : neonPaths(items, fill, params.overlap);
+  const neon = orderRuns(single ? singleLinePaths(items, params.overlap) : neonPaths(items, fill, params.overlap));
 
   const half = (params.stripWidth + params.channelClearance) / 2;
   const channel = tube(neon, half);
   const band = tube(neon, half + params.wallThickness);
-  const walls = simplify(difference(band, channel), 0.03);
-  // In single-line mode the body is just the channel: the letter shape itself is not printed.
-  const footprint = single ? band : union(fill, band);
+  // In single-line mode (or channel-only style) the body is just the channel: the letter shape is not printed.
+  const footprint = single || params.bodyStyle === 'channel' ? band : union(fill, band);
+  const walls = simplify(difference(params.bodyStyle === 'solid' ? footprint : band, channel), 0.03);
   const bridges = params.bridges ? bridgeIslands(footprint, params.bridgeWidth, params.wallThickness + 1) : [];
   const base = bridges.length ? union(footprint, bridges) : footprint;
   const tight = tightSpots(neon, params.minBendRadius);
 
   const split = opts.split === false ? NO_SPLIT : splitBody(base, walls, {
     maxPiece: params.maxPiece,
+    cutMode: params.cutMode,
     connectors: params.connectors,
     connectorClearance: params.connectorClearance,
     tabNeck: 7,
@@ -156,7 +185,10 @@ export function buildDesign(src: Source, params: Params, nudges: Record<number, 
   let pieces = split.pieces;
   if (pieces.length && (cableHoles.length || params.mountHoles)) {
     pieces = pieces.map((pc, i) => {
-      const others = params.mountHoles ? union(pieces.flatMap((o, j) => (j === i ? [] : [o.base.outer]))) : [];
+      // Only neighbours that a lug could reach matter.
+      const g = lugR * 2 + 2;
+      const near = (o: Piece) => o.bbox.minX < pc.bbox.maxX + g && o.bbox.maxX > pc.bbox.minX - g && o.bbox.minY < pc.bbox.maxY + g && o.bbox.maxY > pc.bbox.minY - g;
+      const others = params.mountHoles ? pieces.flatMap((o, j) => (j !== i && near(o) ? [o.base.outer] : [])) : [];
       const m = params.mountHoles ? mountPoints(pc, band, others, holeR, lugR, { x: split.xCuts, y: split.yCuts }) : [];
       mounts.push(...m);
       const mine = cableHoles.filter(([x, y]) => x > pc.bbox.minX - cableR && x < pc.bbox.maxX + cableR && y > pc.bbox.minY - cableR && y < pc.bbox.maxY + cableR);
@@ -177,6 +209,22 @@ export function buildDesign(src: Source, params: Params, nudges: Record<number, 
   warnings.push(...split.warnings);
 
   const fb = bbox(fill);
+  const raisedBridges = bridges.length && params.bridgeHeight > params.baseThickness + 0.05;
+  if (raisedBridges) {
+    pieces = pieces.map((pc) => {
+      const raised = toPolys(difference(intersect(polyPaths(pc.base), bridges), walls));
+      return raised.length ? { ...pc, raised } : pc;
+    });
+  }
+  if (params.labels) {
+    pieces = pieces.map((pc) => {
+      const own = neon.filter((l) => l.pts.some(([x, y]) => x >= pc.bbox.minX && x <= pc.bbox.maxX && y >= pc.bbox.minY && y <= pc.bbox.maxY));
+      const label = placeLabel(pc, own, pc.id);
+      return label ? { ...pc, label } : pc;
+    });
+    const missing = pieces.filter((pc) => !pc.label).map((pc) => pc.id);
+    if (missing.length) warnings.push(`No room to engrave the ID on piece${missing.length > 1 ? 's' : ''} ${missing.join(', ')}; mark ${missing.length > 1 ? 'them' : 'it'} by hand.`);
+  }
   const bounds = pieces.length ? bbox(pieces.map((p) => p.base.outer)) : bbox(base);
   const lugs = mounts.filter((m) => m.lug).length;
   if (lugs) warnings.push(`${lugs} mounting hole${lugs > 1 ? 's are' : ' is'} on a small lug sticking out from the edge of a piece, where there is no solid back plate to put a hole in. Turn mounting holes off and use a backing board if you would rather not see them.`);
@@ -188,6 +236,7 @@ export function buildDesign(src: Source, params: Params, nudges: Record<number, 
   for (const p of pieces) {
     volume += totalArea([p.base.outer, ...p.base.holes]) * params.baseThickness;
     for (const wp of p.walls) volume += totalArea([wp.outer, ...wp.holes]) * params.wallHeight;
+    for (const r of p.raised ?? []) volume += totalArea(polyPaths(r)) * (params.bridgeHeight - params.baseThickness);
   }
   const stats: Stats = {
     letterWidth: fb.maxX - fb.minX,
@@ -201,7 +250,7 @@ export function buildDesign(src: Source, params: Params, nudges: Record<number, 
     // PLA at roughly 1.24 g/cm³, solid. Real prints with infill come in a bit lighter.
     filamentGrams: (volume / 1000) * 1.24,
   };
-  return { params, scale, items, fill, neon, channel, walls, bridges, base, tight, cableHoles, mounts, split, pieces, bounds, warnings, stats };
+  return { params, scale, items, fill, neon, channel, walls, bridges, base, tight, cableHoles, mounts, runs: runInfo(neon, pieces), split, pieces, bounds, warnings, stats };
 }
 
 /**
@@ -227,7 +276,7 @@ export function neonPaths(items: DesignItem[], fill: Paths, mode: OverlapMode): 
  */
 export function singleLinePaths(items: DesignItem[], mode: OverlapMode): Polyline[] {
   const out: Polyline[] = items.flatMap((i) => i.lines);
-  const shapes = items.filter((i) => !i.lines.length).map((i) => i.fill);
+  const shapes = items.map((i) => i.shape).filter((s) => s.length);
   if (mode === 'merge') out.push(...centrelines(union(shapes.flat())));
   else for (const s of shapes) out.push(...centrelines(s));
   return out.filter((l) => polylineLength(l) > 1);

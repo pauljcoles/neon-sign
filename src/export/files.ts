@@ -27,6 +27,14 @@ export function templateSvg(d: Design, opts: { labels?: boolean } = {}): string 
   });
   parts.push(`<path d="${paths(d.walls)}" fill="#0003" fill-rule="nonzero" stroke="none"/>`);
   parts.push(`<path d="${d.neon.map(line).join('')}" fill="none" stroke="#e0218a" stroke-width="0.6" stroke-dasharray="3 1.5"/>`);
+  // Numbered start of each run, with an arrow showing which way the strip goes.
+  d.runs.forEach((r, i) => {
+    const [x, y] = r.start, [ux, uy] = r.dir;
+    const bx = x - ux * 7, by = y - uy * 7;
+    const tip = (k: number, side: number) => `${tx(x + ux * k - uy * side)} ${ty(y + uy * k + ux * side)}`;
+    parts.push(`<path d="M${tip(0, 1.6)}L${tip(4, 0)}L${tip(0, -1.6)}Z" fill="#e0218a"/>`);
+    parts.push(`<circle cx="${tx(bx)}" cy="${ty(by)}" r="3.2" fill="#e0218a"/><text x="${tx(bx)}" y="${ty(by)}" font-family="sans-serif" font-size="4" font-weight="700" text-anchor="middle" dominant-baseline="central" fill="#fff">${i + 1}</text>`);
+  });
   for (const x of d.split.xCuts) parts.push(`<line x1="${tx(x)}" y1="0" x2="${tx(x)}" y2="${fmt(H)}" stroke="#d00" stroke-width="0.3" stroke-dasharray="2 2"/>`);
   for (const y of d.split.yCuts) parts.push(`<line x1="0" y1="${ty(y)}" x2="${fmt(W)}" y2="${ty(y)}" stroke="#d00" stroke-width="0.3" stroke-dasharray="2 2"/>`);
   if (opts.labels !== false) {
@@ -45,12 +53,9 @@ const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&l
 export function assemblyGuide(d: Design, title: string): string {
   const s = d.stats, p = d.params;
   const rows = d.pieces.map((pc) => `<tr><td>${pc.id}</td><td>${(pc.bbox.maxX - pc.bbox.minX).toFixed(0)} × ${(pc.bbox.maxY - pc.bbox.minY).toFixed(0)} mm</td><td>piece-${pc.id}.stl</td></tr>`).join('');
-  const runs = d.neon.map((l, i) => {
-    let len = 0;
-    for (let k = 1; k < l.pts.length; k++) len += Math.hypot(l.pts[k][0] - l.pts[k - 1][0], l.pts[k][1] - l.pts[k - 1][1]);
-    if (l.closed) len += Math.hypot(l.pts[0][0] - l.pts[l.pts.length - 1][0], l.pts[0][1] - l.pts[l.pts.length - 1][1]);
-    return `<li>Run ${i + 1}: ${(len / 10).toFixed(1)} cm${l.closed ? ' (loop)' : ''}</li>`;
-  }).join('');
+  // Cut lengths are rounded up to the next 5 mm; the strip can be trimmed, not stretched.
+  const runs = d.runs.map((r, i) => `<tr><td>${i + 1}</td><td>${(Math.ceil(r.length / 5) * 5 / 10).toFixed(1)} cm</td><td>${d.neon[i].closed ? 'loop' : 'line'}</td><td>${r.pieces.join(' → ') || '—'}</td></tr>`).join('');
+  const total = d.runs.reduce((t, r) => t + Math.ceil(r.length / 5) * 5, 0);
   const warn = d.warnings.length ? `<h2>Check before printing</h2><ul>${d.warnings.map((w) => `<li>${esc(w)}</li>`).join('')}</ul>` : '';
   return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)} — assembly guide</title>
 <style>body{font:15px/1.5 system-ui,sans-serif;max-width:900px;margin:2rem auto;padding:0 1rem;color:#222}table{border-collapse:collapse}td,th{border:1px solid #ccc;padding:4px 10px;text-align:left}svg{width:100%;height:auto;border:1px solid #ddd}</style>
@@ -73,7 +78,9 @@ Channel width ${(p.stripWidth + p.channelClearance).toFixed(1)} mm, walls ${p.wa
 <li>${d.cableHoles.length ? 'Feed the wire of each strip through the hole in the channel floor at the start of its run' : 'Drill a small hole for the feed wire at the start of each run'}, then press the neon strip into the channel. Neon strip bends best with a radius of ${p.minBendRadius} mm or more; at the red-marked spots, warm the strip gently or cut and rejoin it.</li>
 <li>${d.mounts.length ? `Screw the sign to the wall or a backing board through the ${d.mounts.length} mounting holes (${p.screwHoleDiameter} mm, for ${Math.max(2, Math.floor(p.screwHoleDiameter - 0.5))} mm screws).` : 'Mount on a backing board or hang with wire through the bridges.'}</li>
 </ol>
-<h2>Neon runs</h2><ul>${runs}</ul>
+<h2>Neon runs: cut list</h2>
+<p>Each run starts at its numbered circle on the template, at the cable hole, and follows the arrow. Cut the strip to these lengths (rounded up to 5 mm) and add what your strip needs for the wire end. Total ${(total / 1000).toFixed(2)} m.</p>
+<table><tr><th>Run</th><th>Cut length</th><th>Shape</th><th>Pieces it passes through</th></tr>${runs}</table>
 </body></html>`;
 }
 

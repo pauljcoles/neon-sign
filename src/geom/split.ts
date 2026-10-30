@@ -6,6 +6,7 @@ import {
 
 export interface SplitParams {
   maxPiece: number;
+  cutMode?: 'smart' | 'grid';
   connectors: boolean;
   connectorClearance: number;
   tabNeck: number;
@@ -37,6 +38,10 @@ export interface Piece {
   row: number;
   base: Poly;
   walls: Poly[];
+  /** Bridges built up above the base plate (when the bridge height is more than the base thickness). */
+  raised?: Poly[];
+  /** Engraved ID on the underside, cut `engraveDepth` into the base plate. */
+  label?: Paths;
   bbox: BBox;
 }
 
@@ -55,10 +60,11 @@ const FAR = 1e5;
  * Picks cut positions along one axis so every cell is at most `maxCell` long,
  * preferring lines that cross as little material as possible.
  */
-export function chooseCuts(base: Paths, axis: 0 | 1, lo: number, hi: number, maxCell: number, minJoint = 0): number[] {
+export function chooseCuts(base: Paths, axis: 0 | 1, lo: number, hi: number, maxCell: number, minJoint = 0, grid = false): number[] {
   const span = hi - lo;
   if (span <= maxCell) return [];
   const n = Math.ceil(span / maxCell);
+  if (grid) return Array.from({ length: n - 1 }, (_, k) => lo + (span * (k + 1)) / n);
   const cuts: number[] = [];
   let prev = lo;
   for (let k = 1; k < n; k++) {
@@ -123,8 +129,9 @@ export function splitBody(base: Paths, walls: Paths, p: SplitParams): SplitResul
   const depth = p.connectors ? p.tabDepth : 0;
   const maxCell = p.maxPiece - depth;
   const minJoint = p.connectors ? p.tabHead * Math.min(...TAB_SCALES.filter((k) => p.tabNeck * k >= MIN_NECK)) + 3 : 0;
-  const xCuts = chooseCuts(base, 0, b.minX, b.maxX, maxCell, minJoint);
-  const yCuts = chooseCuts(base, 1, b.minY, b.maxY, maxCell, minJoint);
+  const grid = p.cutMode === 'grid';
+  const xCuts = chooseCuts(base, 0, b.minX, b.maxX, maxCell, minJoint, grid);
+  const yCuts = chooseCuts(base, 1, b.minY, b.maxY, maxCell, minJoint, grid);
   const xs = [-FAR, ...xCuts, FAR];
   const ys = [-FAR, ...yCuts, FAR];
   const cols = xs.length - 1, rows = ys.length - 1;

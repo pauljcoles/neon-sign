@@ -15,21 +15,28 @@ npm run build      # static site in dist/
 
 ## Using it
 
-1. **Content**: type your text (Enter starts a new line), pick a font or upload a TTF/OTF/WOFF file. Or switch to **SVG** and upload a drawing. Filled shapes are traced; lines with a stroke and no fill are used as the neon path exactly as drawn.
+1. **Content**: type your text (Enter starts a new line), pick a font or upload a TTF/OTF/WOFF file. Single-line fonts such as Relief SingleLine work too: their there-and-back strokes are used as centre lines. Or switch to **SVG** and upload a drawing. Filled shapes are traced; lines with a stroke and no fill are used as the neon path exactly as drawn.
    **Neon runs** picks the style:
    - *Around each letter (outline)*: the strip follows the letter outlines. Best with bold fonts.
    - *Down the middle of each stroke (single line)*: one strip down the centre of each stroke, like classic neon. Best with script and thin fonts. The printed body is just the channel around that line. Where strokes cross (an "x", a script loop) the strip runs straight through; where one stroke meets another side-on (a "T"), it becomes a separate run. Dots too small for a line (the dot on an "i") are left out, with a warning.
 2. **Letter spacing**: negative values push letters into each other. **Where letters overlap** decides how the neon runs:
    - *Merge*: one outline around the fused letters.
    - *Right-hand / left-hand letter on top*: the top letter keeps its full outline, so a seam line runs across the overlap.
-3. **Move things**: drag in the preview. The toolbar switch sets whether a drag moves a **Letter**, a **Word** or a **Line**. The neon channel re-renders live while you drag. The cut into pieces is redone when you let go. Drag empty space to pan; scroll to zoom. *Reset moved letters and words* undoes all moves.
-4. **Size**: set the lettering width in mm, the max piece size (240 mm by default, leaving margin on a 256 mm bed) and the bed size.
+3. **Move things**: drag in the preview. The toolbar switch sets whether a drag moves a **Letter**, a **Word** or a **Line**. The neon channel re-renders live while you drag; pause for a moment (still holding) and the pieces and connectors are recut too. Drag empty space to pan; scroll to zoom. *Reset moved letters and words* undoes all moves.
+4. **Size**: size the lettering by width or by height. Pick your **printer** (or enter the bed size) and a **margin**; pieces are kept to the bed minus twice the margin (240 mm on a 256 mm bed by default). **Cuts** are *smart* (where they cross the least material) or an *even grid*.
 5. **Neon strip**: pick a **strip size** preset (3 × 8 up to 12 × 25 mm; it sets the strip width and a wall height 2 mm under the strip height) or enter your own. **Download fit test piece** gives a 60 mm U of channel with one bend at the min bend radius: print it first to check the strip presses in snugly.
-6. **Printed body**: wall thickness and height, base thickness, bridges between loose letters, dovetail connectors and their clearance, plus:
+6. **Printed body**: a **body style**:
+   - *Back plate*: channel walls on a plate the shape of the letters.
+   - *Solid letters*: the letters are solid up to the top of the walls, with the channel sunk in.
+   - *Channel only*: just the channel and its walls (single-line mode always works like this).
+
+   Then wall thickness and height, base thickness, bridges between loose letters (with a **bridge height**: taller bridges are stiffer), dovetail connectors and their clearance, plus:
    - **Cable hole** through the channel floor at the start of each run, for the feed wire (lower end of an open run, bottom of a loop, kept clear of cuts).
    - **Screw holes for mounting**: in solid back plate where there is room (inside letters, on bridges), otherwise on a small lug on the outer edge of the piece. Wide pieces get two.
+   - **Engraved piece IDs** on the underside (0.6 mm deep, mirrored so they read correctly with the piece turned over), on plain floor with no wall above.
 7. **Layers**: pieces, walls, bridges, neon path, cuts and tight-bend markers. **Glow** shows a lit-up preview in the chosen colour.
-8. **Download ZIP**: `pieces/piece-A1.stl …`, `pieces/fit-test.stl`, `template.svg` (1:1, with a 100 mm scale bar), `assembly-guide.html` and `settings.json`.
+8. **Runs**: each run starts at its cable hole (numbered pink circle in the preview and on the template, with an arrow for direction). The assembly guide has a cut list: length per run, rounded up to 5 mm, and the pieces it passes through.
+9. **Download ZIP**: `pieces/piece-A1.stl …`, `pieces/fit-test.stl`, `template.svg` (1:1, with a 100 mm scale bar), `assembly-guide.html` and `settings.json`.
 
 Piece names are a column letter (from the left) plus a row number (from the top). `A1` is the top-left piece.
 
@@ -47,7 +54,7 @@ The stats bar shows lettering size, printed size, piece count, metres of neon (a
 
 ## Checked so far
 
-- Unit tests cover the fit-test piece for every strip preset, cable holes (one per run, in the channel, clear of cuts), screw holes and lugs, single-line centrelines (bars, rings, crosses, T junctions, stroked lines, dropped dots), offsets, channel width, neon length (merge and stacked), tight-bend detection, cut placement, row splitting, connectors, SVG path parsing (arcs, relative commands), word/line grouping, and watertight meshes for all three bundled fonts.
+- Unit tests cover run order and the cut list, engraved labels clear of walls, body styles and raised bridges, size by height, even-grid cuts, single-line font strokes, the fit-test piece for every strip preset, cable holes (one per run, in the channel, clear of cuts), screw holes and lugs, single-line centrelines (bars, rings, crosses, T junctions, stroked lines, dropped dots), offsets, channel width, neon length (merge and stacked), tight-bend detection, cut placement, row splitting, connectors, SVG path parsing (arcs, relative commands), word/line grouping, and watertight meshes for all three bundled fonts.
 - A 700 mm "Neon Bar" export sliced without errors in the Bambu Studio CLI with the P2S 0.4 mm / 0.20 mm Standard / PLA Basic profiles.
 
 ## Fonts

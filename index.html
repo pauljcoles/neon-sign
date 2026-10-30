@@ -64,10 +64,26 @@
 
       <details open>
         <summary>Size</summary>
-        <label class="field">Lettering width (mm) <input type="number" id="width" min="50" max="5000" step="10" /></label>
-        <label class="field">Max piece size (mm) <input type="number" id="maxPiece" min="60" max="400" step="1" /></label>
+        <label class="field">Size by
+          <select id="sizeBy">
+            <option value="width">Width of the lettering</option>
+            <option value="height">Height of the lettering</option>
+          </select>
+        </label>
+        <label class="field" id="width-field">Lettering width (mm) <input type="number" id="width" min="50" max="5000" step="10" /></label>
+        <label class="field" id="height-field">Lettering height (mm) <input type="number" id="height" min="20" max="3000" step="5" /></label>
+        <label class="field">Printer
+          <select id="printer"></select>
+        </label>
         <label class="field">Printer bed (mm) <input type="number" id="bedSize" min="100" max="500" step="1" /></label>
-        <p class="hint">Defaults suit a Bambu Lab P2S (256 mm bed) with a 16 mm margin.</p>
+        <label class="field">Margin on each side of the bed (mm) <input type="number" id="margin" min="0" max="50" step="1" /></label>
+        <p class="hint" id="maxPiece-note"></p>
+        <label class="field">Cuts
+          <select id="cutMode">
+            <option value="smart">Smart: where they cross the least material</option>
+            <option value="grid">Even grid: equal-sized strips</option>
+          </select>
+        </label>
       </details>
 
       <details>
@@ -85,17 +101,28 @@
 
       <details>
         <summary>Printed body</summary>
+        <label class="field">Body style
+          <select id="bodyStyle">
+            <option value="plate">Back plate: walls on a plate the shape of the letters</option>
+            <option value="solid">Solid letters: channel sunk into solid letters</option>
+            <option value="channel">Channel only: no plate between the walls</option>
+          </select>
+        </label>
         <label class="field">Wall thickness (mm) <input type="number" id="wallThickness" min="0.8" max="6" step="0.1" /></label>
         <label class="field">Wall height (mm) <input type="number" id="wallHeight" min="2" max="40" step="0.5" /></label>
         <label class="field">Base thickness (mm) <input type="number" id="baseThickness" min="0.8" max="10" step="0.2" /></label>
         <label class="check"><input type="checkbox" id="bridges" /> Join loose letters with bridges</label>
         <label class="field">Bridge width (mm) <input type="number" id="bridgeWidth" min="3" max="30" step="1" /></label>
+        <label class="field">Bridge height (mm) <input type="number" id="bridgeHeight" min="0.8" max="40" step="0.2" /></label>
+        <p class="hint">At the base thickness bridges are flush with the plate; taller ones are stiffer.</p>
         <label class="check"><input type="checkbox" id="connectors" /> Dovetail connectors at joints</label>
         <label class="field">Connector clearance (mm) <input type="number" id="connectorClearance" min="0" max="1" step="0.05" /></label>
         <label class="check"><input type="checkbox" id="cableHoles" /> Cable hole at the start of each run</label>
         <label class="field">Cable hole diameter (mm) <input type="number" id="cableHoleDiameter" min="2" max="12" step="0.5" /></label>
         <label class="check"><input type="checkbox" id="mountHoles" /> Screw holes for mounting</label>
         <label class="field">Screw hole diameter (mm) <input type="number" id="screwHoleDiameter" min="2" max="10" step="0.5" /></label>
+        <label class="check"><input type="checkbox" id="labels" /> Engrave piece IDs on the underside</label>
+        <label class="field">Engraving depth (mm) <input type="number" id="engraveDepth" min="0.2" max="2" step="0.1" /></label>
         <p class="hint">Screw holes go in solid back plate where there is room, otherwise on a small lug at the edge of the piece.</p>
       </details>
 

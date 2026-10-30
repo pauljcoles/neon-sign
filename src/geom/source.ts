@@ -39,14 +39,49 @@ export function textSource(font: Font, text: string, opts: TextOptions): Source 
     font.forEachGlyph(line, 0, li * opts.lineHeight * LAYOUT_SIZE, LAYOUT_SIZE,
       { kerning: opts.kerning, letterSpacing: opts.letterSpacing },
       (glyph, x, y, size) => {
-        const rings = flattenCommands(glyph.getPath(x, y, size).commands, 0.35);
+        const { rings, lines } = splitStrokes(flattenCommands(glyph.getPath(x, y, size).commands, 0.35));
         const label = glyph.unicode ? String.fromCodePoint(glyph.unicode) : chars[ci] ?? '?';
         ci++;
-        if (rings.length) items.push({ label, rings, fill: 'nonzero', word, line: li });
+        if (lines.length) items.push({ label, rings, fill: 'nonzero', word, line: li, lines, strokeWidth: LAYOUT_SIZE * 0.06 });
+        else if (rings.length) items.push({ label, rings, fill: 'nonzero', word, line: li });
         else if (/\s/.test(label)) word++;
       });
   });
   return { items };
+}
+
+/**
+ * Single-line fonts (such as Relief SingleLine) can only store closed outlines, so each stroke is drawn out and
+ * back along itself and encloses no area. Those outlines are turned back into open centre lines: the first half
+ * of the way round is the stroke. Ordinary outlines are returned unchanged.
+ */
+export function splitStrokes(rings: Ring[]): { rings: Ring[]; lines: Polyline[] } {
+  const out: { rings: Ring[]; lines: Polyline[] } = { rings: [], lines: [] };
+  for (const r of rings) {
+    let perim = 0, area2 = 0;
+    for (let i = 0; i < r.length; i++) {
+      const a = r[i], b = r[(i + 1) % r.length];
+      perim += Math.hypot(b[0] - a[0], b[1] - a[1]);
+      area2 += a[0] * b[1] - b[0] * a[1];
+    }
+    // A real outline of a stroke w wide has area of about w × perimeter / 2.
+    if (perim === 0 || Math.abs(area2 / 2) > 0.002 * perim * LAYOUT_SIZE) { out.rings.push(r); continue; }
+    const pts: Pt[] = [r[0]];
+    let walked = 0;
+    for (let i = 1; i <= r.length; i++) {
+      const a = r[i - 1], b = r[i % r.length];
+      const seg = Math.hypot(b[0] - a[0], b[1] - a[1]);
+      if (walked + seg >= perim / 2) {
+        const t = seg > 0 ? (perim / 2 - walked) / seg : 0;
+        pts.push([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]);
+        break;
+      }
+      walked += seg;
+      pts.push(b);
+    }
+    if (pts.length >= 2) out.lines.push({ pts, closed: false });
+  }
+  return out;
 }
 
 /** Converts path commands to closed polylines. `seg` is the target segment length in the commands' units. */

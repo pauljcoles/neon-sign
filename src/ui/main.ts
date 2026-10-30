@@ -41,6 +41,8 @@ interface State {
   strip: StripSpec;
   params: Params;
   nudges: Record<number, Nudge>;
+  /** Words grouped to move together, by word number. Cleared when the text changes. */
+  groups: number[][];
 }
 
 const STORE_KEY = 'glowline.v1';
@@ -49,7 +51,7 @@ const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as 
 function loadState(): State {
   const base: State = {
     source: 'text', text: 'Glow', font: 'Pacifico', letterSpacing: 0, lineHeight: 1.1, kerning: true,
-    glowColor: '#ff3d9a', margin: 8, strip: { ...defaultStrip }, params: { ...defaultParams }, nudges: {},
+    glowColor: '#ff3d9a', margin: 8, strip: { ...defaultStrip }, params: { ...defaultParams }, nudges: {}, groups: [],
   };
   try {
     const saved = JSON.parse(localStorage.getItem(STORE_KEY) ?? 'null');
@@ -122,6 +124,8 @@ worker.onmessage = (e: MessageEvent<{ id: number; design?: Design | null; ms?: n
     renderWarnings([`Could not build the design: ${e.data.error}`]);
   } else if (job) {
     design = e.data.design ?? null;
+    viewer.selected = itemsOfWords(selectedWords);
+    viewer.groups = activeGroups().map((g) => itemsOfWords(g));
     viewer.setDesign(design, job.liveDelta, job.keepView);
     if (job.split) {
       renderStats(e.data.ms ?? 0);
@@ -158,11 +162,44 @@ function nudgedBy(items: number[], dx: number, dy: number): Record<number, Nudge
   return out;
 }
 
+// ---- selection and groups ---------------------------------------------------
+// Words (or SVG shapes, which each count as a word) can be selected with a click and grouped, so they move
+// together in Word mode. Dragging a selected word also moves everything else that is selected.
+
+let svgGroups: number[][] = [];
+let selectedWords = new Set<number>();
+const activeGroups = () => (state.source === 'text' ? state.groups : svgGroups);
+const setGroups = (g: number[][]) => { if (state.source === 'text') state.groups = g; else svgGroups = g; };
+const groupWith = (word: number) => activeGroups().find((g) => g.includes(word)) ?? [word];
+const itemsOfWords = (words: Iterable<number>) => {
+  const set = new Set(words);
+  return (source?.items ?? []).flatMap((it, i) => (set.has(it.word) ? [i] : []));
+};
+
 function groupOf(index: number): number[] {
   const items = source?.items;
   if (!items || dragMode === 'letter') return [index];
-  const key = dragMode === 'word' ? 'word' : 'line';
-  return items.flatMap((it, i) => (it[key] === items[index][key] ? [i] : []));
+  if (dragMode === 'line') return items.flatMap((it, i) => (it.line === items[index].line ? [i] : []));
+  const word = items[index].word;
+  const words = new Set(groupWith(word));
+  if (selectedWords.has(word)) for (const w of selectedWords) for (const g of groupWith(w)) words.add(g);
+  return itemsOfWords(words);
+}
+
+function refreshSelection() {
+  viewer.selected = itemsOfWords(selectedWords);
+  viewer.groups = activeGroups().map((g) => itemsOfWords(g));
+  const grouped = [...selectedWords].some((w) => groupWith(w).length > 1);
+  const distinct = new Set([...selectedWords].map((w) => groupWith(w).join(',')));
+  $<HTMLButtonElement>('group').disabled = distinct.size < 2;
+  $<HTMLButtonElement>('ungroup').disabled = !grouped;
+  viewer.draw();
+}
+
+function clearSelection(dropGroups: boolean) {
+  selectedWords = new Set();
+  if (dropGroups) setGroups([]);
+  refreshSelection();
 }
 
 function renderStats(ms: number) {
@@ -212,7 +249,7 @@ const numericParams: (keyof Params)[] = [
 function bindControls() {
   const text = $<HTMLTextAreaElement>('text');
   text.value = state.text;
-  text.addEventListener('input', () => { state.text = text.value; state.nudges = {}; schedule(); });
+  text.addEventListener('input', () => { state.text = text.value; state.nudges = {}; clearSelection(true); schedule(); });
 
   const sel = $<HTMLSelectElement>('font');
   sel.addEventListener('change', () => { state.font = sel.value; state.nudges = {}; schedule(0); });
@@ -373,6 +410,7 @@ function bindControls() {
     document.querySelectorAll('[data-source]').forEach((x) => x.classList.toggle('on', x === b));
     $('text-controls').hidden = state.source !== 'text';
     $('svg-controls').hidden = state.source !== 'svg';
+    clearSelection(false);
     schedule(0);
   }));
 
@@ -382,6 +420,7 @@ function bindControls() {
     try {
       svg = { name: file.name, source: svgSource(await file.text()) };
       svgNudges = {};
+      clearSelection(true);
       $('svg-name').textContent = `${file.name}: ${svg.source.items.length} shape${svg.source.items.length === 1 ? '' : 's'}.`;
       schedule(0);
     } catch (err) {
@@ -403,6 +442,30 @@ function bindControls() {
   $('fit').addEventListener('click', () => viewer.fit());
 
   viewer.groupOf = groupOf;
+  viewer.onClick = (index, add) => {
+    const items = source?.items;
+    if (index < 0 || !items) { if (!add) clearSelection(false); return; }
+    // Clicking picks the whole group a word belongs to.
+    const words = groupWith(items[index].word);
+    const on = words.every((w) => selectedWords.has(w));
+    if (!add) selectedWords = new Set(on && selectedWords.size === words.length ? [] : words);
+    else for (const w of words) on ? selectedWords.delete(w) : selectedWords.add(w);
+    refreshSelection();
+  };
+  $('group').addEventListener('click', () => {
+    // Merge the selected words, and any groups they are already in, into one group.
+    const merged = new Set<number>();
+    for (const w of selectedWords) for (const g of groupWith(w)) merged.add(g);
+    setGroups([...activeGroups().filter((g) => !g.some((w) => merged.has(w))), [...merged].sort((a, b) => a - b)]);
+    selectedWords = merged;
+    refreshSelection();
+    save();
+  });
+  $('ungroup').addEventListener('click', () => {
+    setGroups(activeGroups().filter((g) => !g.some((w) => selectedWords.has(w))));
+    refreshSelection();
+    save();
+  });
   // While dragging, rebuild without the (slower) split on every move; once the pointer rests for a moment,
   // rebuild with the cuts too, so pieces and connectors follow the drag without waiting for the drop.
   let restTimer = 0;
@@ -425,6 +488,7 @@ function bindControls() {
   };
   document.querySelectorAll<HTMLButtonElement>('[data-drag]').forEach((b) => b.addEventListener('click', () => {
     dragMode = b.dataset.drag as typeof dragMode;
+    $('group-tools').hidden = dragMode !== 'word';
     document.querySelectorAll('[data-drag]').forEach((x) => x.classList.toggle('on', x === b));
   }));
 

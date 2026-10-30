@@ -144,6 +144,8 @@ button.link { background: none; border: 0; color: var(--accent-2); padding: 4px 
   flex-wrap: wrap;
 }
 .toolbar .seg { margin: 0; }
+.group-tools { display: flex; gap: 4px; }
+.group-tools button { padding: 5px 10px; font-size: 13px; }
 .layers { display: flex; gap: 12px; flex-wrap: wrap; font-size: 13px; }
 .layers label { display: flex; gap: 4px; align-items: center; }
 .layers input { accent-color: var(--accent); }

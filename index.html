@@ -158,6 +158,10 @@
           <button type="button" data-drag="word" class="on">Word</button>
           <button type="button" data-drag="line">Line</button>
         </div>
+        <div class="group-tools" id="group-tools" title="Click a word to select it; Shift-click to add more">
+          <button type="button" id="group" disabled>Group</button>
+          <button type="button" id="ungroup" disabled>Ungroup</button>
+        </div>
         <div class="layers" id="layers">
           <label><input type="checkbox" data-layer="pieces" checked /> Pieces</label>
           <label><input type="checkbox" data-layer="walls" checked /> Walls</label>
@@ -169,7 +173,7 @@
         <button type="button" id="fit">Fit</button>
       </div>
       <div class="canvas-wrap"><canvas id="canvas"></canvas></div>
-      <p class="canvas-hint">Drag letters, words or lines to move them · drag empty space to pan · scroll to zoom</p>
+      <p class="canvas-hint">Drag to move · click a word, Shift-click more, then Group to move them together · drag empty space to pan · scroll to zoom</p>
       <div class="busy" id="busy" hidden>Working…</div>
     </section>
   </main>

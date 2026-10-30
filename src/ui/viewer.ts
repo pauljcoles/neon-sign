@@ -1,5 +1,5 @@
 // Canvas preview: pan/zoom, layers, glow mode and letter dragging.
-import { type Paths, type Polyline, pointInPaths } from '../geom/clip';
+import { type Paths, type Polyline, bbox, pointInPaths } from '../geom/clip';
 import type { Design } from '../geom/design';
 import { pieceHue } from '../export/files';
 
@@ -48,6 +48,12 @@ export class Viewer {
   /** Called while dragging and once at the end, with the total offset in mm (y up). */
   onDragMove: (items: number[], dx: number, dy: number) => void = () => {};
   onNudge: (items: number[], dx: number, dy: number) => void = () => {};
+  /** A click without dragging: on an item (index ≥ 0) or on empty space (-1). `add` is true with Shift/Ctrl/Cmd. */
+  onClick: (index: number, add: boolean) => void = () => {};
+  /** Items highlighted as selected. */
+  selected: number[] = [];
+  /** Sets of items grouped together; each gets a dashed box in the layout view. */
+  groups: number[][] = [];
 
   private ctx: CanvasRenderingContext2D;
   private cache: Cache | null = null;
@@ -56,7 +62,9 @@ export class Viewer {
   private oy = 0;
   private fitted = false;
   private fitBounds: Design['bounds'] | null = null;
-  private drag: { kind: 'pan' | 'item'; x: number; y: number; group: number[]; dx: number; dy: number } | null = null;
+  private drag: {
+    kind: 'pan' | 'item'; index: number; x: number; y: number; downX: number; downY: number; group: number[]; dx: number; dy: number;
+  } | null = null;
   /** Drag offset already baked into the current design (from a live rebuild), so the overlay shows only the rest. */
   private liveDelta = { dx: 0, dy: 0 };
   private dpr = 1;
@@ -143,7 +151,7 @@ export class Viewer {
         if (pointInPaths(this.design.items[i].fill, wx, wy)) { index = i; break; }
       }
     }
-    this.drag = { kind: index >= 0 ? 'item' : 'pan', x: sx, y: sy, group: index >= 0 ? this.groupOf(index) : [], dx: 0, dy: 0 };
+    this.drag = { kind: index >= 0 ? 'item' : 'pan', index, x: sx, y: sy, downX: sx, downY: sy, group: index >= 0 ? this.groupOf(index) : [], dx: 0, dy: 0 };
     this.liveDelta = { dx: 0, dy: 0 };
     this.canvas.setPointerCapture(e.pointerId);
     this.canvas.style.cursor = index >= 0 ? 'move' : 'grabbing';
@@ -178,7 +186,10 @@ export class Viewer {
     this.drag = null;
     this.canvas.releasePointerCapture(e.pointerId);
     this.canvas.style.cursor = 'grab';
-    if (d?.kind === 'item' && (Math.abs(d.dx) > 0.2 || Math.abs(d.dy) > 0.2)) this.onNudge(d.group, d.dx, d.dy);
+    const [sx, sy] = this.local(e);
+    const still = !!d && Math.hypot(sx - d.downX, sy - d.downY) < 4;
+    if (d && still) this.onClick(d.index, e.shiftKey || e.ctrlKey || e.metaKey);
+    else if (d?.kind === 'item' && (Math.abs(d.dx) > 0.2 || Math.abs(d.dy) > 0.2)) this.onNudge(d.group, d.dx, d.dy);
     this.draw();
   }
 
@@ -280,6 +291,21 @@ export class Viewer {
         ctx.arc(x, y, Math.max(4, 8 * px), 0, Math.PI * 2);
         ctx.stroke();
       }
+    }
+    if (!glow && (this.selected.length || this.groups.length)) {
+      // Selection tint and a dashed box round each group.
+      ctx.fillStyle = 'rgba(75,227,255,0.28)';
+      for (const i of this.selected) if (c.items[i]) ctx.fill(c.items[i], 'nonzero');
+      ctx.strokeStyle = '#1a9fc0';
+      ctx.lineWidth = 1.2 * px;
+      ctx.setLineDash([5 * px, 4 * px]);
+      for (const g of this.groups) {
+        const fills = g.flatMap((i) => d.items[i]?.fill ?? []);
+        if (!fills.length) continue;
+        const b = bbox(fills), m = 4 * px;
+        ctx.strokeRect(b.minX - m, b.minY - m, b.maxX - b.minX + 2 * m, b.maxY - b.minY + 2 * m);
+      }
+      ctx.setLineDash([]);
     }
     if (this.drag?.kind === 'item') {
       ctx.save();

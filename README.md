@@ -13,6 +13,8 @@ npm test           # geometry unit tests
 npm run build      # static site in dist/
 ```
 
+Live site: https://pauljcoles.github.io/neon-sign/ (deployed by `.github/workflows/pages.yml` on every push to `main`).
+
 ## Using it
 
 The site has a **How to build one** guide (`guide.html`): order of work, choosing LED neon (sizes, bend direction, 12 V vs 24 V, cut marks, colour types), filament and print settings, power supplies and wiring, mounting, safety and troubleshooting.

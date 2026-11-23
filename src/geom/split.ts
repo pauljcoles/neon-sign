@@ -56,6 +56,10 @@ export interface SplitResult {
 
 const FAR = 1e5;
 
+/** A leftover piece smaller than this (mm², and under TINY_SPAN mm long) is not worth printing on its own. */
+const TINY_AREA = 300;
+const TINY_SPAN = 60;
+
 /**
  * Picks cut positions along one axis so every cell is at most `maxCell` long,
  * preferring lines that cross as little material as possible.
@@ -78,7 +82,7 @@ export function chooseCuts(base: Paths, axis: 0 | 1, lo: number, hi: number, max
     for (const r of base) {
       for (let i = 0, j = r.length - 1; i < r.length; j = i++) {
         const a = r[j][axis], b2 = r[i][axis];
-        if (Math.max(a, b2) >= from && Math.min(a, b2) <= to) local.push([r[j], r[i]]);
+        if (Math.max(a, b2) >= from - TIP_LOOK && Math.min(a, b2) <= to + TIP_LOOK) local.push([r[j], r[i]]);
       }
     }
     for (let c = from; c <= to + 1e-9; c += 0.5) {
@@ -86,13 +90,24 @@ export function chooseCuts(base: Paths, axis: 0 | 1, lo: number, hi: number, max
       const crossing = iv.reduce((s, [a, b]) => s + (b - a), 0);
       // A cut that only clips the end of a stroke leaves a sliver too short for any connector.
       const slivers = iv.filter(([a, b]) => b - a < minJoint).length;
-      const score = crossing + 4 * iv.length + 20 * slivers + 0.1 * Math.abs(c - ideal);
+      // A cut that only clips the tip of a stroke leaves a tiny piece on the far side. Material that really
+      // continues across the cut is also there a few mm to either side.
+      const tips = iv.length ? iv.filter(([a, b]) => !continues(local, axis, c - TIP_LOOK, a, b) || !continues(local, axis, c + TIP_LOOK, a, b)).length : 0;
+      const score = crossing + 4 * iv.length + 20 * slivers + 30 * tips + 0.1 * Math.abs(c - ideal);
       if (score < bestScore) { bestScore = score; best = c; }
     }
     cuts.push(best);
     prev = best;
   }
   return cuts;
+}
+
+/** How far either side of a cut to look for the material carrying on, mm. */
+const TIP_LOOK = 6;
+
+/** Whether the body has material on the line `c` that lines up with the interval [a, b] (give or take 3 mm). */
+function continues(edges: Paths, axis: 0 | 1, c: number, a: number, b: number): boolean {
+  return segmentIntervals(edges, axis, c).some(([x, y]) => x < b + 3 && y > a - 3);
 }
 
 /** Like lineIntervals, but over loose 2-point edges. */
@@ -185,6 +200,78 @@ export function splitBody(base: Paths, walls: Paths, p: SplitParams): SplitResul
   xCuts.forEach((c, i) => doCut(0, i, c));
   yCuts.forEach((c, i) => doCut(1, i, c));
 
+  // First work out the parts each cell holds, then merge any tiny leftovers into a neighbour, then name the pieces.
+  interface Frag { c: number; r: number; poly: Poly; walls: Poly[] }
+  let frags: Frag[] = [];
+  for (let c = 0; c < cols; c++) {
+    for (let r = 0; r < rows; r++) {
+      let region: Paths = [rect(xs[c], ys[r], xs[c + 1], ys[r + 1])];
+      const own = owned.get(key(c, r));
+      if (own) region = union(region, own);
+      const intr = intruding.get(key(c, r));
+      if (intr) region = difference(region, offset(union(intr), p.connectorClearance));
+      const cellBase = intersect(base, region);
+      if (!cellBase.length) continue;
+      const cellWalls = intersect(walls, region);
+      const comps = toPolys(cellBase).filter((q) => totalArea(polyPaths(q)) > 2).sort((m, n) => area(n.outer) - area(m.outer));
+      for (const comp of comps) {
+        frags.push({ c, r, poly: comp, walls: cellWalls.length ? toPolys(intersect(cellWalls, polyPaths(comp))) : [] });
+      }
+    }
+  }
+  const spanOf = (f: Frag) => { const b = bbox([f.poly.outer]); return Math.max(b.maxX - b.minX, b.maxY - b.minY); };
+  const isTiny = (f: Frag) => totalArea(polyPaths(f.poly)) < TINY_AREA && spanOf(f) < TINY_SPAN;
+  for (let changed = true; changed;) {
+    changed = false;
+    for (const f of frags) {
+      if (!isTiny(f)) continue;
+      const fb = bbox([f.poly.outer]);
+      let best: { g: Frag; joint: Joint; touch: number; merged: Poly } | null = null;
+      for (const [dc, dr, axis, at] of [[-1, 0, 0, xs[f.c]], [1, 0, 0, xs[f.c + 1]], [0, -1, 1, ys[f.r]], [0, 1, 1, ys[f.r + 1]]] as const) {
+        if (Math.abs(at) > FAR / 2) continue;
+        const edge = axis === 0 ? (dc < 0 ? fb.minX : fb.maxX) : (dr < 0 ? fb.minY : fb.maxY);
+        if (Math.abs(edge - at) > 1) continue;
+        const lo = axis === 0 ? fb.minY : fb.minX, hi = axis === 0 ? fb.maxY : fb.maxX;
+        // Only across a joint with no connector: absorbing across a tab would leave its socket as a slit.
+        const joint = joints.find((q) => q.axis === axis && Math.abs(q.at - at) < 1e-6 && Math.min(q.to, hi) - Math.max(q.from, lo) > 0.5);
+        if (!joint || joint.tabs > 0) continue;
+        const grown = offset(polyPaths(f.poly), 0.4);
+        for (const g of frags) {
+          if (g === f || g.c !== f.c + dc || g.r !== f.r + dr) continue;
+          const touch = totalArea(intersect(grown, polyPaths(g.poly)));
+          if (touch < 0.3 || (best && touch <= best.touch)) continue;
+          const merged = toPolys(union(polyPaths(g.poly), polyPaths(f.poly)));
+          if (merged.length !== 1) continue;
+          const mb = bbox([merged[0].outer]);
+          if (mb.maxX - mb.minX > p.maxPiece + 0.01 || mb.maxY - mb.minY > p.maxPiece + 0.01) continue;
+          best = { g, joint, touch, merged: merged[0] };
+        }
+      }
+      if (!best) continue;
+      best.g.poly = best.merged;
+      best.g.walls = toPolys(union(best.g.walls.flatMap(polyPaths), f.walls.flatMap(polyPaths)));
+      frags = frags.filter((x) => x !== f);
+      joints.splice(joints.indexOf(best.joint), 1);
+      changed = true;
+      break;
+    }
+  }
+
+  const pieces: Piece[] = [];
+  const perCell = new Map<string, number>();
+  for (const f of frags) perCell.set(key(f.c, f.r), (perCell.get(key(f.c, f.r)) ?? 0) + 1);
+  const seen = new Map<string, number>();
+  for (const f of frags) {
+    const k = seen.get(key(f.c, f.r)) ?? 0;
+    seen.set(key(f.c, f.r), k + 1);
+    const id = `${colName(f.c)}${rows - f.r}${perCell.get(key(f.c, f.r))! > 1 ? String.fromCharCode(97 + k) : ''}`;
+    const pb = bbox([f.poly.outer]);
+    if (pb.maxX - pb.minX > p.maxPiece + 0.01 || pb.maxY - pb.minY > p.maxPiece + 0.01) {
+      warnings.push(`Piece ${id} is ${(pb.maxX - pb.minX).toFixed(0)} × ${(pb.maxY - pb.minY).toFixed(0)} mm, larger than the ${p.maxPiece} mm limit.`);
+    }
+    pieces.push({ id, col: f.c, row: f.r, base: f.poly, walls: f.walls, bbox: pb });
+  }
+
   for (const j of joints) {
     if (j.tabs > 0 || !p.connectors) continue;
     const where = j.axis === 0 ? `x = ${j.at.toFixed(0)} mm (y ${j.from.toFixed(0)}–${j.to.toFixed(0)})` : `y = ${j.at.toFixed(0)} mm (x ${j.from.toFixed(0)}–${j.to.toFixed(0)})`;
@@ -197,30 +284,6 @@ export function splitBody(base: Paths, walls: Paths, p: SplitParams): SplitResul
   const small = joints.reduce((n, j) => n + j.small, 0);
   if (small) warnings.push(`${small} joint${small > 1 ? 's are' : ' is'} too narrow for a full-size connector and got a smaller one — add a drop of glue there.`);
 
-  const pieces: Piece[] = [];
-  for (let c = 0; c < cols; c++) {
-    for (let r = 0; r < rows; r++) {
-      let region: Paths = [rect(xs[c], ys[r], xs[c + 1], ys[r + 1])];
-      const own = owned.get(key(c, r));
-      if (own) region = union(region, own);
-      const intr = intruding.get(key(c, r));
-      if (intr) region = difference(region, offset(union(intr), p.connectorClearance));
-      const cellBase = intersect(base, region);
-      if (!cellBase.length) continue;
-      const cellWalls = intersect(walls, region);
-      const comps = toPolys(cellBase).filter((q) => totalArea(polyPaths(q)) > 2).sort((m, n) => area(n.outer) - area(m.outer));
-      const rowLabel = rows - r;
-      comps.forEach((comp, k) => {
-        const id = `${colName(c)}${rowLabel}${comps.length > 1 ? String.fromCharCode(97 + k) : ''}`;
-        const w = cellWalls.length ? toPolys(intersect(cellWalls, polyPaths(comp))) : [];
-        const pb = bbox([comp.outer]);
-        if (pb.maxX - pb.minX > p.maxPiece + 0.01 || pb.maxY - pb.minY > p.maxPiece + 0.01) {
-          warnings.push(`Piece ${id} is ${(pb.maxX - pb.minX).toFixed(0)} × ${(pb.maxY - pb.minY).toFixed(0)} mm, larger than the ${p.maxPiece} mm limit.`);
-        }
-        pieces.push({ id, col: c, row: r, base: comp, walls: w, bbox: pb });
-      });
-    }
-  }
   return { xCuts, yCuts, tabs, joints, pieces, warnings };
 }
 

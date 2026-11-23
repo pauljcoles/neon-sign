@@ -128,3 +128,35 @@ describe('font change', () => {
     expect(out).toEqual({ 0: { dx: 15, dy: 0 } });
   });
 });
+
+describe('tiny leftover pieces', () => {
+  const nl = textSource(font('Pacifico-Regular.ttf'), 'Good Vibes\nOnly', { letterSpacing: 0, lineHeight: 1.1, kerning: true });
+  // The P1S case that used to leave an 8 × 34 mm piece where a stroke tip crossed two cuts.
+  const d = buildDesign(nl, { ...defaultParams, width: 900, maxPiece: 220, bedFrontExclude: 28 })!;
+
+  it('does not leave a piece too small to be worth printing', () => {
+    for (const p of d.pieces) {
+      const small = totalArea(polyPaths(p.base)) < 300 && Math.max(p.bbox.maxX - p.bbox.minX, p.bbox.maxY - p.bbox.minY) < 60;
+      expect(small, `piece ${p.id}`).toBe(false);
+    }
+  });
+
+  it('keeps all the material, closed shells and the size limit', () => {
+    const baseArea = totalArea(d.base), wallArea = totalArea(d.walls);
+    const pieceBase = d.pieces.reduce((t, p) => t + totalArea(polyPaths(p.base)), 0);
+    const pieceWalls = d.pieces.reduce((t, p) => t + p.walls.reduce((u, w) => u + totalArea(polyPaths(w)), 0), 0);
+    // Connector sockets and the clearance round them take a little away; the rest must all be there.
+    expect(pieceBase / baseArea).toBeGreaterThan(0.99);
+    expect(pieceBase / baseArea).toBeLessThan(1.02);
+    expect(pieceWalls / wallArea).toBeGreaterThan(0.98);
+    for (const p of d.pieces) {
+      expect(p.bbox.maxX - p.bbox.minX).toBeLessThanOrEqual(220.01 + 12);
+      for (const shell of [p.base, ...p.walls]) expect(isWatertight(prism(shell, 0, 5))).toBe(true);
+    }
+  });
+
+  it('does not warn about the joint that no longer exists', () => {
+    for (const j of d.split.joints) expect(j.to - j.from).toBeGreaterThan(0.05);
+    expect(d.warnings.filter((w) => /is only [0-8]\.\d mm long/.test(w))).toEqual([]);
+  });
+});

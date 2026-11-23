@@ -1,5 +1,6 @@
 // Canvas preview: pan/zoom, layers, glow mode and letter dragging.
-import { type Paths, type Polyline, bbox, pointInPaths } from '../geom/clip';
+import { type BBox, type Paths, type Polyline, bbox, pointInPaths } from '../geom/clip';
+import { snapOffset } from './snap';
 import type { Design } from '../geom/design';
 import { pieceHue } from '../export/files';
 
@@ -50,6 +51,8 @@ export class Viewer {
   onNudge: (items: number[], dx: number, dy: number) => void = () => {};
   /** A click without dragging: on an item (index ≥ 0) or on empty space (-1). `add` is true with Shift/Ctrl/Cmd. */
   onClick: (index: number, add: boolean) => void = () => {};
+  /** Boxes a dragged group can snap to (other words and lines), given the items being dragged. Alt turns snapping off. */
+  snapTargets: (group: number[]) => BBox[] = () => [];
   /** Items highlighted as selected. */
   selected: number[] = [];
   /** Sets of items grouped together; each gets a dashed box in the layout view. */
@@ -64,7 +67,13 @@ export class Viewer {
   private fitBounds: Design['bounds'] | null = null;
   private drag: {
     kind: 'pan' | 'item'; index: number; x: number; y: number; downX: number; downY: number; group: number[]; dx: number; dy: number;
+    /** Where the pointer has taken the group, before snapping. */
+    rx: number; ry: number;
+    /** The group's box and the snap targets at the moment of pickup. */
+    start?: BBox; targets?: BBox[];
   } | null = null;
+  /** Guide lines to draw while a drag is snapped. */
+  private guides: { x: number[]; y: number[] } = { x: [], y: [] };
   /** Drag offset already baked into the current design (from a live rebuild), so the overlay shows only the rest. */
   private liveDelta = { dx: 0, dy: 0 };
   private dpr = 1;
@@ -151,7 +160,14 @@ export class Viewer {
         if (pointInPaths(this.design.items[i].fill, wx, wy)) { index = i; break; }
       }
     }
-    this.drag = { kind: index >= 0 ? 'item' : 'pan', index, x: sx, y: sy, downX: sx, downY: sy, group: index >= 0 ? this.groupOf(index) : [], dx: 0, dy: 0 };
+    const group = index >= 0 ? this.groupOf(index) : [];
+    this.drag = { kind: index >= 0 ? 'item' : 'pan', index, x: sx, y: sy, downX: sx, downY: sy, group, dx: 0, dy: 0, rx: 0, ry: 0 };
+    if (index >= 0 && this.design) {
+      const fills = group.flatMap((i) => this.design!.items[i]?.fill ?? []);
+      const box = fills.length ? bbox(fills) : null;
+      if (box && Number.isFinite(box.minX)) { this.drag.start = box; this.drag.targets = this.snapTargets(group); }
+    }
+    this.guides = { x: [], y: [] };
     this.liveDelta = { dx: 0, dy: 0 };
     this.canvas.setPointerCapture(e.pointerId);
     this.canvas.style.cursor = index >= 0 ? 'move' : 'grabbing';
@@ -174,8 +190,18 @@ export class Viewer {
       this.ox += ddx;
       this.oy += ddy;
     } else {
-      this.drag.dx += ddx / this.scale;
-      this.drag.dy -= ddy / this.scale;
+      this.drag.rx += ddx / this.scale;
+      this.drag.ry -= ddy / this.scale;
+      this.drag.dx = this.drag.rx;
+      this.drag.dy = this.drag.ry;
+      this.guides = { x: [], y: [] };
+      if (!e.altKey && this.drag.start && this.drag.targets?.length) {
+        // Lock on to nearby edges and centres within about 6 screen pixels.
+        const s = snapOffset(this.drag.start, this.drag.targets, this.drag.rx, this.drag.ry, 6 / this.scale);
+        this.drag.dx = s.dx;
+        this.drag.dy = s.dy;
+        this.guides = s.guides;
+      }
       this.onDragMove(this.drag.group, this.drag.dx, this.drag.dy);
     }
     this.draw();
@@ -184,6 +210,7 @@ export class Viewer {
   private up(e: PointerEvent) {
     const d = this.drag;
     this.drag = null;
+    this.guides = { x: [], y: [] };
     this.canvas.releasePointerCapture(e.pointerId);
     this.canvas.style.cursor = 'grab';
     const [sx, sy] = this.local(e);
@@ -305,6 +332,17 @@ export class Viewer {
         const b = bbox(fills), m = 4 * px;
         ctx.strokeRect(b.minX - m, b.minY - m, b.maxX - b.minX + 2 * m, b.maxY - b.minY + 2 * m);
       }
+      ctx.setLineDash([]);
+    }
+    if (this.drag?.kind === 'item' && (this.guides.x.length || this.guides.y.length)) {
+      const b = d.bounds, m = 20 * px;
+      ctx.strokeStyle = '#e0218a';
+      ctx.lineWidth = 1.2 * px;
+      ctx.setLineDash([5 * px, 4 * px]);
+      ctx.beginPath();
+      for (const x of this.guides.x) { ctx.moveTo(x, b.minY - m); ctx.lineTo(x, b.maxY + m); }
+      for (const y of this.guides.y) { ctx.moveTo(b.minX - m, y); ctx.lineTo(b.maxX + m, y); }
+      ctx.stroke();
       ctx.setLineDash([]);
     }
     if (this.drag?.kind === 'item') {

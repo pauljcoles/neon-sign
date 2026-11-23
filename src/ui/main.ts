@@ -1,5 +1,6 @@
 import { type Font, parse } from 'opentype.js';
 import '../style.css';
+import { type BBox, bbox } from '../geom/clip';
 import { bedRegion, type Design, defaultParams, type NeonStyle, type Nudge, type OverlapMode, type Params } from '../geom/design';
 import type { BuildRequest } from '../geom/worker';
 import { remapNudges, type Source, svgSource, textSource } from '../geom/source';
@@ -37,6 +38,8 @@ interface State {
   font: string;
   letterSpacing: number;
   lineHeight: number;
+  /** How multi-line text lines up. */
+  align: 'left' | 'center' | 'right';
   kerning: boolean;
   glowColor: string;
   /** Space kept free on each side of the bed; the max piece size is the bed minus twice this. */
@@ -54,7 +57,7 @@ const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as 
 
 function loadState(): State {
   const base: State = {
-    source: 'text', text: 'Glow', font: 'Pacifico', letterSpacing: 0, lineHeight: 1.1, kerning: true,
+    source: 'text', text: 'Glow', font: 'Pacifico', letterSpacing: 0, lineHeight: 1.1, align: 'center', kerning: true,
     glowColor: '#ff3d9a', margin: 8, strip: { ...defaultStrip }, params: { ...defaultParams }, nudges: {}, groups: [],
   };
   try {
@@ -102,7 +105,7 @@ async function currentSource(): Promise<Source | null> {
   if (state.source === 'svg') return svg?.source ?? null;
   if (!state.text.trim()) return null;
   const font = fonts.get(state.font) ?? (BUNDLED[state.font] ? await loadBundled(state.font) : await loadBundled('Pacifico'));
-  return textSource(font, state.text, { letterSpacing: state.letterSpacing, lineHeight: state.lineHeight, kerning: state.kerning });
+  return textSource(font, state.text, { letterSpacing: state.letterSpacing, lineHeight: state.lineHeight, kerning: state.kerning, align: state.align });
 }
 
 // Geometry runs in a worker. Only one build is in flight at a time; while it runs, newer requests replace each
@@ -300,6 +303,10 @@ function bindControls() {
   range('letterSpacing', (v) => `${v > 0 ? '+' : ''}${Math.round(v * 100)}%`);
   range('lineHeight', (v) => `${v.toFixed(2)}×`);
 
+  const align = $<HTMLSelectElement>('align');
+  align.value = state.align;
+  align.addEventListener('change', () => { state.align = align.value as State['align']; schedule(0); });
+
   const kerning = $<HTMLInputElement>('kerning');
   kerning.checked = state.kerning;
   kerning.addEventListener('change', () => { state.kerning = kerning.checked; schedule(0); });
@@ -469,6 +476,26 @@ function bindControls() {
   $('fit').addEventListener('click', () => viewer.fit());
 
   viewer.groupOf = groupOf;
+  viewer.snapTargets = (group) => {
+    const items = source?.items, d = design;
+    if (!items || !d) return [];
+    const inGroup = new Set(group);
+    const words = new Map<number, number[]>(), lines = new Map<number, number[]>();
+    items.forEach((it, i) => {
+      if (inGroup.has(i)) return;
+      (words.get(it.word) ?? words.set(it.word, []).get(it.word)!).push(i);
+      (lines.get(it.line) ?? lines.set(it.line, []).get(it.line)!).push(i);
+    });
+    // Each other word, and each other line as a whole, is something to line up with.
+    const out: BBox[] = [];
+    for (const idx of [...words.values(), ...lines.values()]) {
+      const fills = idx.flatMap((i) => d.items[i]?.fill ?? []);
+      if (!fills.length) continue;
+      const b = bbox(fills);
+      if (Number.isFinite(b.minX)) out.push(b);
+    }
+    return out;
+  };
   viewer.onClick = (index, add) => {
     const items = source?.items;
     if (index < 0 || !items) { if (!add) clearSelection(false); return; }

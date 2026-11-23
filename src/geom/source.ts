@@ -26,6 +26,8 @@ export interface TextOptions {
   /** Line pitch as a multiple of the font size. */
   lineHeight: number;
   kerning: boolean;
+  /** Line the ink of multi-line text up on the left edges, the centre or the right edges (unset: leave the font's own layout). */
+  align?: 'left' | 'center' | 'right';
 }
 
 export function textSource(font: Font, text: string, opts: TextOptions): Source {
@@ -47,6 +49,7 @@ export function textSource(font: Font, text: string, opts: TextOptions): Source 
         else if (/\s/.test(label)) word++;
       });
   });
+  if (opts.align) alignLines(items, opts.align);
   return { items };
 }
 
@@ -110,6 +113,30 @@ export function remapNudges<N extends { dx: number; dy: number }>(from: Source, 
     }
   }
   return out;
+}
+
+/** Shifts each line sideways so the ink of all lines lines up on the left edge, the centre or the right edge. */
+function alignLines(items: SourceItem[], align: 'left' | 'center' | 'right') {
+  const extent = new Map<number, [number, number]>();
+  const each = (it: SourceItem, f: (x: number) => void) => {
+    for (const r of it.rings) for (const [x] of r) f(x);
+    for (const l of it.lines ?? []) for (const [x] of l.pts) f(x);
+  };
+  for (const it of items) {
+    const e = extent.get(it.line) ?? [Infinity, -Infinity];
+    each(it, (x) => { e[0] = Math.min(e[0], x); e[1] = Math.max(e[1], x); });
+    extent.set(it.line, e);
+  }
+  if (extent.size < 2) return;
+  const g0 = Math.min(...[...extent.values()].map((e) => e[0])), g1 = Math.max(...[...extent.values()].map((e) => e[1]));
+  const shift = new Map<number, number>();
+  for (const [line, [a, b]] of extent) shift.set(line, align === 'right' ? g1 - b : align === 'left' ? g0 - a : (g0 + g1) / 2 - (a + b) / 2);
+  for (const it of items) {
+    const dx = shift.get(it.line) ?? 0;
+    if (!dx) continue;
+    it.rings = it.rings.map((r) => r.map(([x, y]) => [x + dx, y] as Pt));
+    if (it.lines) it.lines = it.lines.map((l) => ({ closed: l.closed, pts: l.pts.map(([x, y]) => [x + dx, y] as Pt) }));
+  }
 }
 
 /** Converts path commands to closed polylines. `seg` is the target segment length in the commands' units. */

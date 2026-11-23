@@ -1,18 +1,22 @@
 import { type Font, parse } from 'opentype.js';
 import '../style.css';
-import { type Design, defaultParams, type NeonStyle, type Nudge, type OverlapMode, type Params } from '../geom/design';
+import { bedRegion, type Design, defaultParams, type NeonStyle, type Nudge, type OverlapMode, type Params } from '../geom/design';
 import type { BuildRequest } from '../geom/worker';
 import { remapNudges, type Source, svgSource, textSource } from '../geom/source';
 import { buildSheet, buildSheetHtml, defaultStrip, type StripSpec } from '../export/buildsheet';
 import { buildZip, templateSvg } from '../export/files';
+import { build3mf } from '../export/threemf';
 import { pieceMesh, toBinaryStl } from '../export/mesh';
 import { fitTestPiece, presetWallHeight, STRIP_PRESETS } from '../geom/fittings';
 import { type Layer, type Mode, Viewer } from './viewer';
 
-/** Build plate sizes in mm (x × y). */
-const PRINTERS: { name: string; bed: [number, number] }[] = [
-  { name: 'Bambu Lab P2S / P1S / X1C', bed: [256, 256] },
-  { name: 'Bambu Lab A1', bed: [256, 256] },
+/**
+ * Build plate sizes in mm (x × y). `front` is the depth of a strip along the front edge that cannot be printed on:
+ * the P1S, P1P and X1C keep an 18 × 28 mm corner clear, so pieces are kept out of the whole 28 mm strip.
+ */
+const PRINTERS: { name: string; bed: [number, number]; front?: number }[] = [
+  { name: 'Bambu Lab P2S / A1', bed: [256, 256] },
+  { name: 'Bambu Lab P1S / P1P / X1C', bed: [256, 256], front: 28 },
   { name: 'Bambu Lab A1 mini', bed: [180, 180] },
   { name: 'Prusa MK4S', bed: [250, 210] },
   { name: 'Prusa CORE One', bed: [250, 220] },
@@ -355,21 +359,28 @@ function bindControls() {
   const bed = $<HTMLInputElement>('bedSize'), margin = $<HTMLInputElement>('margin');
   margin.value = String(state.margin);
   const applyBed = () => {
-    state.params.maxPiece = Math.max(40, state.params.bedSize - 2 * state.margin);
-    const i = PRINTERS.findIndex((p) => Math.min(...p.bed) === state.params.bedSize);
-    if (printer.value === '' || Math.min(...(PRINTERS[Number(printer.value)]?.bed ?? [0])) !== state.params.bedSize) printer.value = i < 0 ? '' : String(i);
-    $('maxPiece-note').textContent = `Pieces up to ${state.params.maxPiece} × ${state.params.maxPiece} mm. Rectangular beds use the shorter side.`;
+    const p = state.params;
+    p.bedMargin = state.margin;
+    const r = bedRegion(p);
+    p.maxPiece = Math.max(40, Math.floor(Math.min(r.w, r.h)));
+    const i = PRINTERS.findIndex((x) => Math.min(...x.bed) === p.bedSize && (x.front ?? 0) === p.bedFrontExclude);
+    printer.value = i < 0 ? '' : String(i);
+    $('maxPiece-note').textContent = `Pieces up to ${p.maxPiece} × ${p.maxPiece} mm.`
+      + (p.bedFrontExclude ? ` The front ${p.bedFrontExclude} mm of this printer's plate cannot be printed on, so pieces are kept clear of it.` : '')
+      + ' Rectangular beds use the shorter side.';
   };
   applyBed();
   printer.addEventListener('change', () => {
     const p = PRINTERS[Number(printer.value)];
     if (!printer.value || !p) return;
     state.params.bedSize = Math.min(...p.bed);
+    state.params.bedFrontExclude = p.front ?? 0;
     bed.value = String(state.params.bedSize);
     applyBed();
     schedule(0);
   });
-  bed.addEventListener('input', () => setTimeout(() => { applyBed(); schedule(250); }));
+  // Typing a bed size means a printer that is not in the list, so no front strip is assumed.
+  bed.addEventListener('input', () => setTimeout(() => { state.params.bedFrontExclude = 0; applyBed(); schedule(250); }));
   margin.addEventListener('input', () => {
     const v = Number(margin.value);
     if (!Number.isFinite(v) || v < 0) return;
@@ -515,6 +526,16 @@ function bindControls() {
     try {
       const blob = await buildZip(design, title(), { text: state.source === 'text' ? state.text : svg?.name, font: state.font, letterSpacing: state.letterSpacing, lineHeight: state.lineHeight, params: state.params, nudges: state.nudges, strip: state.strip }, state.strip);
       downloadBlob(blob, `${slug()}-neon-sign.zip`);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+  $('download-3mf').addEventListener('click', async () => {
+    if (!design) return;
+    const btn = $<HTMLButtonElement>('download-3mf');
+    btn.disabled = true;
+    try {
+      downloadBlob(await build3mf(design, title()), `${slug()}-neon-sign.3mf`);
     } finally {
       btn.disabled = false;
     }

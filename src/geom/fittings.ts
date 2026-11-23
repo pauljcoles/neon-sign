@@ -118,7 +118,7 @@ export interface Mount { c: Pt; lug: boolean }
  * room (inside letters, on bridges); a piece with no room gets a small lug on its lower edge instead.
  * Wide pieces get two, as far apart as possible.
  */
-export function mountPoints(piece: Piece, band: Paths, others: Paths, holeR: number, lugR: number, cuts: { x: number[]; y: number[] }): Mount[] {
+export function mountPoints(piece: Piece, band: Paths, others: Paths, holeR: number, lugR: number, cuts: { x: number[]; y: number[] }, limit = { w: Infinity, h: Infinity }): Mount[] {
   const ring = holeR + 2.5;
   const own = polyPaths(piece.base);
   const b = piece.bbox;
@@ -151,6 +151,9 @@ export function mountPoints(piece: Piece, band: Paths, others: Paths, holeR: num
     const topFirst = [...h].sort((a, b) => b[1] - a[1]).slice(0, 10);
     for (const [p, dir] of [...ranked.map((p) => [p, -1] as const), ...topFirst.map((p) => [p, 1] as const)]) {
       const c: Pt = [p[0], p[1] + dir * (lugR - 2)];
+      // A lug must not push the piece past what the printer can print.
+      const nb = bbox([[...piece.base.outer, [c[0] - lugR, c[1] - lugR], [c[0] + lugR, c[1] + lugR]]]);
+      if (nb.maxX - nb.minX > limit.w || nb.maxY - nb.minY > limit.h) continue;
       if (cuts.x.some((x) => Math.abs(c[0] - x) < lugR + 1) || cuts.y.some((y) => Math.abs(c[1] - y) < lugR + 1)) continue;
       if (others.length && totalArea(intersect([circle(c, lugR + 1)], others)) > 0.01) continue;
       out.push({ c, lug: true });

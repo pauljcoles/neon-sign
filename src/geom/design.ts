@@ -40,6 +40,10 @@ export interface Params {
   bridgeHeight: number;
   maxPiece: number;
   bedSize: number;
+  /** Space kept free round the edge of the bed, mm. */
+  bedMargin: number;
+  /** Depth of the strip along the front edge that the printer cannot print on (P1S, P1P and X1C keep a corner clear). */
+  bedFrontExclude: number;
   connectors: boolean;
   connectorClearance: number;
   /** A hole through the channel floor at the start of each run, for the feed wire. */
@@ -72,6 +76,8 @@ export const defaultParams: Params = {
   bridgeHeight: 2.4,
   maxPiece: 240,
   bedSize: 256,
+  bedMargin: 8,
+  bedFrontExclude: 0,
   connectors: true,
   connectorClearance: 0.2,
   cableHoles: true,
@@ -81,6 +87,13 @@ export const defaultParams: Params = {
   labels: true,
   engraveDepth: 0.6,
 };
+
+/** The part of the bed pieces may use: inside the margin, and clear of the printer's no-print strip at the front. */
+export function bedRegion(p: Pick<Params, 'bedSize' | 'bedMargin' | 'bedFrontExclude'>) {
+  const x0 = p.bedMargin, x1 = p.bedSize - p.bedMargin;
+  const y0 = Math.max(p.bedMargin, p.bedFrontExclude), y1 = p.bedSize - p.bedMargin;
+  return { x0, y0, x1, y1, w: x1 - x0, h: y1 - y0 };
+}
 
 /** Per-item nudge in layout units (same units as the source outlines). */
 export interface Nudge { dx: number; dy: number }
@@ -181,6 +194,7 @@ export function buildDesign(src: Source, params: Params, nudges: Record<number, 
   const cableR = Math.min(params.cableHoleDiameter / 2, half - 0.4);
   const cableHoles = params.cableHoles && cableR > 0.5 ? cableHolePoints(neon, cableR, { x: split.xCuts, y: split.yCuts }) : [];
   const holeR = params.screwHoleDiameter / 2, lugR = holeR + 4;
+  const usable = bedRegion(params);
   const mounts: Mount[] = [];
   let pieces = split.pieces;
   if (pieces.length && (cableHoles.length || params.mountHoles)) {
@@ -189,7 +203,7 @@ export function buildDesign(src: Source, params: Params, nudges: Record<number, 
       const g = lugR * 2 + 2;
       const near = (o: Piece) => o.bbox.minX < pc.bbox.maxX + g && o.bbox.maxX > pc.bbox.minX - g && o.bbox.minY < pc.bbox.maxY + g && o.bbox.maxY > pc.bbox.minY - g;
       const others = params.mountHoles ? pieces.flatMap((o, j) => (j !== i && near(o) ? [o.base.outer] : [])) : [];
-      const m = params.mountHoles ? mountPoints(pc, band, others, holeR, lugR, { x: split.xCuts, y: split.yCuts }) : [];
+      const m = params.mountHoles ? mountPoints(pc, band, others, holeR, lugR, { x: split.xCuts, y: split.yCuts }, { w: usable.w, h: usable.h }) : [];
       mounts.push(...m);
       const mine = cableHoles.filter(([x, y]) => x > pc.bbox.minX - cableR && x < pc.bbox.maxX + cableR && y > pc.bbox.minY - cableR && y < pc.bbox.maxY + cableR);
       return drillPiece(pc, m, holeR, lugR, mine, cableR);
@@ -205,7 +219,9 @@ export function buildDesign(src: Source, params: Params, nudges: Record<number, 
     if (lost) warnings.push(`${lost} small shape${lost > 1 ? 's are' : ' is'} too small for a line of neon (like the dot on an i) and ${lost > 1 ? 'are' : 'is'} left out.`);
   }
   if (tight.length) warnings.push(`${tight.length} spot${tight.length > 1 ? 's' : ''} on the neon path bend tighter than ${params.minBendRadius} mm radius (shown as red rings).`);
-  if (params.maxPiece > params.bedSize) warnings.push(`Max piece size ${params.maxPiece} mm is larger than the ${params.bedSize} mm bed.`);
+  const region = bedRegion(params);
+  const room = Math.min(region.w, region.h);
+  if (params.maxPiece > room + 0.01) warnings.push(`Max piece size ${params.maxPiece} mm is larger than the ${room.toFixed(0)} mm of bed the printer can use.`);
   warnings.push(...split.warnings);
 
   const fb = bbox(fill);
@@ -230,7 +246,7 @@ export function buildDesign(src: Source, params: Params, nudges: Record<number, 
   if (lugs) warnings.push(`${lugs} mounting hole${lugs > 1 ? 's are' : ' is'} on a small lug sticking out from the edge of a piece, where there is no solid back plate to put a hole in. Turn mounting holes off and use a backing board if you would rather not see them.`);
   for (const p of pieces) {
     const w = p.bbox.maxX - p.bbox.minX, h = p.bbox.maxY - p.bbox.minY;
-    if (w > params.bedSize || h > params.bedSize) warnings.push(`Piece ${p.id} is ${w.toFixed(0)} × ${h.toFixed(0)} mm with its lugs, larger than the ${params.bedSize} mm bed.`);
+    if (w > region.w + 0.01 || h > region.h + 0.01) warnings.push(`Piece ${p.id} is ${w.toFixed(0)} × ${h.toFixed(0)} mm, larger than the ${region.w.toFixed(0)} × ${region.h.toFixed(0)} mm of bed the printer can use.`);
   }
   let volume = 0;
   for (const p of pieces) {

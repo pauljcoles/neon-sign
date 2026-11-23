@@ -5,6 +5,7 @@ import type { Design } from '../geom/design';
 import { fitTestPiece } from '../geom/fittings';
 import { buildSheet, buildSheetHtml, defaultStrip, type StripSpec } from './buildsheet';
 import { pieceMesh, toBinaryStl } from './mesh';
+import { build3mf } from './threemf';
 
 export const pieceHue = (i: number) => (i * 137.508) % 360;
 
@@ -88,6 +89,7 @@ export async function buildZip(d: Design, title: string, settings: unknown, stri
   const folder = zip.folder('pieces')!;
   for (const p of d.pieces) folder.file(`piece-${p.id}.stl`, toBinaryStl(pieceMesh(p, d.params), `piece ${p.id}`));
   folder.file('fit-test.stl', toBinaryStl(pieceMesh(fitTestPiece(d.params), d.params), 'fit test'));
+  zip.file('project.3mf', await build3mf(d, title));
   zip.file('template.svg', templateSvg(d));
   zip.file('assembly-guide.html', assemblyGuide(d, title, strip));
   zip.file('settings.json', JSON.stringify(settings, null, 2));

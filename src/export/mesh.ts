@@ -1,7 +1,7 @@
 // Extrudes 2D polygons into closed triangle meshes and writes binary STL.
 import earcut from 'earcut';
 import { type Poly, type Ring, area, difference, intersect, polyPaths, toPolys } from '../geom/clip';
-import type { Params } from '../geom/design';
+import { bedRegion, type Params } from '../geom/design';
 import type { Piece } from '../geom/split';
 
 /** Flat list of triangles, 9 numbers (3 xyz vertices) per triangle. */
@@ -55,25 +55,32 @@ export function prism(poly: Poly, z0: number, z1: number, tris: Tris = []): Tris
  * The piece is centred on the middle of the bed (bed origin at a corner, as Bambu Studio uses).
  */
 export function pieceMesh(piece: Piece, params: Params): Tris {
-  const half = params.bedSize / 2;
-  const cx = (piece.bbox.minX + piece.bbox.maxX) / 2 - half, cy = (piece.bbox.minY + piece.bbox.maxY) / 2 - half;
+  return pieceShells(piece, params).flat();
+}
+
+/** The same mesh as `pieceMesh`, one closed triangle list per shell (base plate, engraved parts, each wall, bridges). */
+export function pieceShells(piece: Piece, params: Params): Tris[] {
+  // Centred on the part of the bed the printer can use, so it also clears a no-print corner.
+  const r = bedRegion(params);
+  const cx = (piece.bbox.minX + piece.bbox.maxX) / 2 - (r.x0 + r.x1) / 2, cy = (piece.bbox.minY + piece.bbox.maxY) / 2 - (r.y0 + r.y1) / 2;
   const move = (p: Poly): Poly => ({
     outer: p.outer.map(([x, y]) => [x - cx, y - cy]),
     holes: p.holes.map((h) => h.map(([x, y]) => [x - cx, y - cy])),
   });
-  const tris: Tris = [];
+  const shells: Tris[] = [];
+  const add = (p: Poly, z0: number, z1: number) => { shells.push(prism(move(p), z0, z1)); };
   const depth = Math.min(params.engraveDepth, params.baseThickness - 0.6);
   if (piece.label?.length && depth > 0) {
     // The plate around the engraving runs full height; under the engraving it starts `depth` up.
     const base = polyPaths(piece.base);
-    for (const p of toPolys(difference(base, piece.label))) prism(move(p), 0, params.baseThickness, tris);
-    for (const p of toPolys(intersect(base, piece.label))) prism(move(p), depth, params.baseThickness, tris);
+    for (const p of toPolys(difference(base, piece.label))) add(p, 0, params.baseThickness);
+    for (const p of toPolys(intersect(base, piece.label))) add(p, depth, params.baseThickness);
   } else {
-    prism(move(piece.base), 0, params.baseThickness, tris);
+    add(piece.base, 0, params.baseThickness);
   }
-  for (const w of piece.walls) prism(move(w), 0, params.baseThickness + params.wallHeight, tris);
-  for (const r of piece.raised ?? []) prism(move(r), 0, params.bridgeHeight, tris);
-  return tris;
+  for (const w of piece.walls) add(w, 0, params.baseThickness + params.wallHeight);
+  for (const r of piece.raised ?? []) add(r, 0, params.bridgeHeight);
+  return shells;
 }
 
 export function toBinaryStl(tris: Tris, name = 'neon-sign'): ArrayBuffer {

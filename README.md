@@ -64,6 +64,8 @@ The stats bar shows lettering size, printed size, piece count, metres of neon (a
 - Unit tests cover the build sheet (cut marks, supply sizing, 12 vs 24 V, long-run warning), run order and the cut list, engraved labels clear of walls, body styles and raised bridges, size by height, even-grid cuts, single-line font strokes, the fit-test piece for every strip preset, cable holes (one per run, in the channel, clear of cuts), screw holes and lugs, single-line centrelines (bars, rings, crosses, T junctions, stroked lines, dropped dots), offsets, channel width, neon length (merge and stacked), tight-bend detection, cut placement, row splitting, connectors, SVG path parsing (arcs, relative commands), word/line grouping, and watertight meshes for all three bundled fonts.
 - A 700 mm "Neon Bar" export sliced without errors in the Bambu Studio CLI with the P2S 0.4 mm / 0.20 mm Standard / PLA Basic profiles.
 
-## Fonts
+## Licence
 
-Pacifico, Lobster and Righteous are bundled from Google Fonts under the SIL Open Font License. The licence files are in `public/fonts/`.
+The code is under the MIT licence (see `LICENSE`).
+
+The bundled fonts are not covered by it: Pacifico, Lobster and Righteous come from Google Fonts under the SIL Open Font License, with their licence files in `public/fonts/`.

@@ -8,7 +8,7 @@ import { buildSheet, buildSheetHtml, defaultStrip, type StripSpec } from '../exp
 import { buildZip, templateSvg } from '../export/files';
 import { build3mf } from '../export/threemf';
 import { pieceMesh, toBinaryStl } from '../export/mesh';
-import { fitTestPiece, presetWallHeight, STRIP_PRESETS } from '../geom/fittings';
+import { fitTestPiece, STRIP_PRESETS } from '../geom/fittings';
 import { type Layer, type Mode, Viewer } from './viewer';
 
 /**
@@ -330,17 +330,33 @@ function bindControls() {
   const preset = $<HTMLSelectElement>('stripPreset');
   preset.innerHTML = '<option value="">Custom</option>' + STRIP_PRESETS.map((p, i) => `<option value="${i}">${p.name}</option>`).join('');
   const syncPreset = () => {
-    const i = STRIP_PRESETS.findIndex((p) => p.width === state.params.stripWidth && presetWallHeight(p.height) === state.params.wallHeight);
+    const i = STRIP_PRESETS.findIndex((p) => p.width === state.params.stripWidth && p.wallHeight === state.params.wallHeight);
     preset.value = i < 0 ? '' : String(i);
   };
   syncPreset();
+  const setNumber = (key: keyof Params, v: number) => {
+    (state.params[key] as number) = v;
+    $<HTMLInputElement>(key).value = String(v);
+  };
+  let applied = STRIP_PRESETS.find((p) => p.width === state.params.stripWidth && p.wallHeight === state.params.wallHeight);
   preset.addEventListener('change', () => {
     const p = STRIP_PRESETS[Number(preset.value)];
     if (!preset.value || !p) return;
-    state.params.stripWidth = p.width;
-    state.params.wallHeight = presetWallHeight(p.height);
-    $<HTMLInputElement>('stripWidth').value = String(p.width);
-    $<HTMLInputElement>('wallHeight').value = String(state.params.wallHeight);
+    setNumber('stripWidth', p.width);
+    setNumber('wallHeight', p.wallHeight);
+    // A preset with its own fit sets it; moving off one puts the usual values back.
+    if (p.channelClearance !== undefined) setNumber('channelClearance', p.channelClearance);
+    else if (applied?.channelClearance !== undefined) setNumber('channelClearance', defaultParams.channelClearance);
+    if (p.baseThickness !== undefined) setNumber('baseThickness', p.baseThickness);
+    else if (applied?.baseThickness !== undefined) setNumber('baseThickness', defaultParams.baseThickness);
+    if (p.strip) {
+      Object.assign(state.strip, p.strip);
+      $<HTMLInputElement>('wattsPerMetre').value = String(state.strip.wattsPerMetre);
+      $<HTMLInputElement>('cutInterval').value = String(state.strip.cutInterval);
+      $<HTMLSelectElement>('voltage').value = String(state.strip.voltage);
+      renderSheet();
+    }
+    applied = p;
     schedule(0);
   });
   // After the generic number handlers below have stored the new value.

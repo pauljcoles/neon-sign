@@ -7,16 +7,35 @@ import { resample, type Params } from './design';
 import type { Piece } from './split';
 import { textArea } from './strokefont';
 
-/** Common silicone LED neon flex sizes: width × height in mm. Walls stop 2 mm short so the strip sits proud. */
-export const STRIP_PRESETS = [
-  { name: '3 × 8 mm', width: 3, height: 8 },
-  { name: '4 × 10 mm', width: 4, height: 10 },
-  { name: '6 × 12 mm', width: 6, height: 12 },
-  { name: '8 × 16 mm', width: 8, height: 16 },
-  { name: '10 × 20 mm', width: 10, height: 20 },
-  { name: '12 × 25 mm', width: 12, height: 25 },
-];
 export const presetWallHeight = (stripHeight: number) => Math.max(2, stripHeight - 2);
+
+export interface StripPreset {
+  name: string;
+  width: number;
+  height: number;
+  /** Height of the walls round the strip, mm. */
+  wallHeight: number;
+  /** Set only by presets that need a particular fit; other presets put these back to the defaults. */
+  channelClearance?: number;
+  baseThickness?: number;
+  /** Electrical figures from the strip's spec sheet. */
+  strip?: { wattsPerMetre?: number; voltage?: 12 | 24; cutInterval?: number };
+}
+
+/** A plain strip stands in a channel with walls that stop 2 mm short of its top, so it sits proud. */
+const plain = (width: number, height: number): StripPreset => ({ name: `${width} × ${height} mm`, width, height, wallHeight: presetWallHeight(height) });
+
+/** Common silicone LED neon flex sizes: width × height in mm. */
+export const STRIP_PRESETS: StripPreset[] = [
+  plain(3, 8), plain(4, 10), plain(6, 12), plain(8, 16), plain(10, 20), plain(12, 25),
+  {
+    // Spectron-style winged 6 × 14 mm flex: the flared foot (6.5 mm wide, about 2.5 mm tall) pushes into a groove
+    // 3.5 mm deep and is gripped by its sides, so only a short wall is needed and no glue. A groove as wide as the
+    // strip body (clearance 0) makes the foot squeeze in. 12 V, 8 W/m, cut every 10 mm.
+    name: 'Winged 6 × 14 mm (push-fit groove)', width: 6, height: 14, wallHeight: 3.5, channelClearance: 0, baseThickness: 1.2,
+    strip: { wattsPerMetre: 8, voltage: 12, cutInterval: 10 },
+  },
+];
 
 export function circle(c: Pt, r: number, n = 36): Ring {
   return Array.from({ length: n }, (_, i): Pt => [c[0] + r * Math.cos((2 * Math.PI * i) / n), c[1] + r * Math.sin((2 * Math.PI * i) / n)]);

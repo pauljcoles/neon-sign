@@ -57,8 +57,8 @@ export interface BuildSheet {
   parts: { item: string; qty: string; note: string }[];
 }
 
-/** Beyond about this length on a single feed, voltage drop makes the far end visibly dimmer (typical figures). */
-const SINGLE_FEED_LIMIT = { 12: 5, 24: 10 } as const;
+/** Beyond about this length on a single feed, voltage drop makes the far end visibly dimmer. The 12 V figure is a neon flex seller's own advice (3 m, powered from both ends); the 24 V one is a rule of thumb. */
+const SINGLE_FEED_LIMIT = { 12: 3, 24: 10 } as const;
 
 export function buildSheet(d: Design, s: StripSpec): BuildSheet {
   const interval = Math.max(1, s.cutInterval);

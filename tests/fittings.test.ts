@@ -5,7 +5,7 @@ import { pointInPaths, polyPaths } from '../src/geom/clip';
 import { buildDesign, defaultParams } from '../src/geom/design';
 import { fitTestPiece, STRIP_PRESETS } from '../src/geom/fittings';
 import { textSource } from '../src/geom/source';
-import { prism, type Tris } from '../src/export/mesh';
+import { pieceMesh, prism, type Tris } from '../src/export/mesh';
 
 const font = (name: string) => {
   const b = readFileSync(new URL(`../public/fonts/${name}`, import.meta.url));
@@ -34,7 +34,7 @@ const design = (text: string, fontName: string, neonStyle: 'outline' | 'single')
 
 describe('fit test piece', () => {
   it.each(STRIP_PRESETS)('is a small closed U for $name strip', (p) => {
-    const piece = fitTestPiece({ ...defaultParams, stripWidth: p.width });
+    const piece = fitTestPiece({ ...defaultParams, stripWidth: p.width, wallHeight: p.wallHeight, channelClearance: p.channelClearance ?? defaultParams.channelClearance, baseThickness: p.baseThickness ?? defaultParams.baseThickness });
     expect(piece.bbox.maxX - piece.bbox.minX).toBeLessThan(100);
     expect(piece.walls.length).toBeGreaterThan(0);
     for (const shell of [piece.base, ...piece.walls]) expect(isWatertight(prism(shell, 0, 5))).toBe(true);
@@ -75,5 +75,24 @@ describe('cable and mounting holes', () => {
       { ...defaultParams, cableHoles: false, mountHoles: false })!;
     expect(d.cableHoles).toHaveLength(0);
     expect(d.mounts).toHaveLength(0);
+  });
+});
+
+describe('winged strip preset', () => {
+  const p = STRIP_PRESETS.find((x) => x.name.startsWith('Winged'))!;
+  const params = { ...defaultParams, stripWidth: p.width, wallHeight: p.wallHeight, channelClearance: p.channelClearance!, baseThickness: p.baseThickness! };
+
+  it('is there with the groove settings', () => {
+    expect(p).toMatchObject({ width: 6, wallHeight: 3.5, channelClearance: 0, baseThickness: 1.2, strip: { voltage: 12, wattsPerMetre: 8, cutInterval: 10 } });
+  });
+
+  it('prints a short groove: the plate and rim are only about 4.7 mm tall, with closed shells', () => {
+    const d = buildDesign(textSource(font('Righteous-Regular.ttf'), 'Hi', { letterSpacing: 0, lineHeight: 1.1, kerning: true }), params)!;
+    expect(d.pieces.length).toBeGreaterThan(0);
+    for (const pc of d.pieces) {
+      const m = pieceMesh(pc, params);
+      expect(Math.max(...m.filter((_, k) => k % 3 === 2))).toBeCloseTo(4.7, 6);
+      for (const shell of [pc.base, ...pc.walls]) expect(isWatertight(prism(shell, 0, 4.7))).toBe(true);
+    }
   });
 });
